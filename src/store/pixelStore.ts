@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { PixelData } from '../types';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 import { validatePixel, validateCoordinates, validateImageUrl } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 
@@ -35,7 +35,8 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
       }
     },
 
-    setupRealtimeSubscription: () => {
+    setupRealtimeSubscription: async () => {
+      const supabase = await getSupabase();
       realtimeSubscription = supabase
         .channel('pixels')
         .on(
@@ -73,6 +74,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           throw new Error('Invalid pixel data');
         }
 
+        const supabase = await getSupabase();
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -105,6 +107,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
       try {
         set({ loading: true, error: null });
 
+        const supabase = await getSupabase();
         const { data, error } = await supabase
           .from('pixels')
           .select('*')
@@ -159,6 +162,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
     findAvailablePixel: async () => {
       try {
+        const supabase = await getSupabase();
         const { data, error } = await supabase
           .from('pixels')
           .select('x, y')

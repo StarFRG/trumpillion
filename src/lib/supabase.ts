@@ -12,7 +12,11 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-const createSupabaseClient = async () => {
+let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+
+export const getSupabase = async () => {
+  if (supabaseInstance) return supabaseInstance;
+
   for (let i = 0; i < RETRY_ATTEMPTS; i++) {
     try {
       const client = createClient<Database>(supabaseUrl, supabaseKey, {
@@ -39,6 +43,8 @@ const createSupabaseClient = async () => {
       // Test connection
       await client.from('settings').select('*').limit(1);
       console.log('✅ Supabase connection successful');
+      
+      supabaseInstance = client;
       return client;
     } catch (error) {
       console.warn(`⚠️ Supabase connection attempt ${i + 1} failed:`, error);
@@ -53,5 +59,3 @@ const createSupabaseClient = async () => {
   }
   throw new Error('Failed to connect to Supabase after multiple attempts');
 };
-
-export const supabase = await createSupabaseClient();

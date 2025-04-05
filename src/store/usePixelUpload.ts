@@ -1,16 +1,13 @@
 import { useState, useCallback } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { getSupabase } from '../../lib/supabase';
-import { validateFile } from '../../utils/validation';
-import { monitoring } from '../../services/monitoring';
+import { getSupabase } from '../lib/supabase';
+import { validateFile } from '../utils/validation';
+import { monitoring } from '../services/monitoring';
 
-export const usePixelModalLogic = (onClose: () => void) => {
+export const usePixelUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const wallet = useWallet();
 
-  const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
+  const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
     try {
       validateFile(file);
       setUploading(true);
@@ -46,40 +43,33 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      setImageUrl(publicUrl);
-
       const { error: dbError } = await supabase
         .from('pixels')
         .insert({
           x: coordinates.x,
           y: coordinates.y,
-          image_url: publicUrl,
-          owner: wallet.publicKey?.toString()
+          image_url: publicUrl
         });
 
       if (dbError) throw dbError;
 
-      onClose();
+      return publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
-          action: 'upload_pixel',
-          coordinates,
-          wallet: wallet.publicKey?.toString()
-        }
+        context: { action: 'upload_pixel', coordinates }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
     } finally {
       setUploading(false);
     }
-  }, [wallet.publicKey, onClose]);
+  }, []);
 
   return {
     uploading,
     error,
-    imageUrl,
-    handleUpload
+    uploadPixel
   };
 };
