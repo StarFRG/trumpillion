@@ -28,22 +28,6 @@ export default defineConfig({
             purpose: 'any maskable'
           }
         ]
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/images\.unsplash\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'image-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60 // 1 week
-              }
-            }
-          }
-        ]
       }
     })
   ],
@@ -65,31 +49,13 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
-    strictPort: true,
     host: true,
-    open: true
+    port: 5173,
+    strictPort: true
   },
   preview: {
-    port: 5173,
-    strictPort: true,
     host: true,
-    open: true
-  },
-  build: {
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'solana-vendor': [
-            '@solana/web3.js',
-            '@solana/wallet-adapter-react',
-            '@solana/wallet-adapter-base'
-          ],
-          'ui-vendor': ['framer-motion', 'lucide-react']
-        }
-      }
-    }
+    port: 5173,
+    strictPort: true
   }
 });

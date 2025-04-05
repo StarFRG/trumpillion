@@ -4,7 +4,6 @@ import { monitoring } from './monitoring';
 import { mintNftFromServer } from '../api/mintNft';
 
 const NETWORK = 'mainnet-beta';
-const ENDPOINT = import.meta.env.VITE_SOLANA_RPC_URL;
 const PROJECT_WALLET = new PublicKey('4PvW69mVK1hZpaSmfge3XUWWBhfuceaegeoiD3BTCnB6');
 const PIXEL_PRICE = 1 * LAMPORTS_PER_SOL; // 1 SOL
 
@@ -14,13 +13,15 @@ export class SolanaService {
   private retryDelay = 1000;
 
   constructor() {
-    if (!ENDPOINT) {
-      throw new Error('VITE_SOLANA_RPC_URL is not defined in environment variables');
-    }
+    // In Development: Use local RPC URL
+    // In Production: Use Netlify Function for RPC operations
+    const endpoint = import.meta.env.DEV 
+      ? import.meta.env.VITE_SOLANA_RPC_URL 
+      : 'https://api.mainnet-beta.solana.com'; // Fallback for balance checks only
 
-    this.connection = new Connection(ENDPOINT, {
+    this.connection = new Connection(endpoint, {
       commitment: 'confirmed',
-      wsEndpoint: ENDPOINT.replace('https://', 'wss://'),
+      wsEndpoint: endpoint.replace('https://', 'wss://'),
       confirmTransactionInitialTimeout: 60000
     });
   }

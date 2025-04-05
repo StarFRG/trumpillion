@@ -5,21 +5,46 @@ import { monitoring } from '../services/monitoring';
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+let supabasePromise: Promise<ReturnType<typeof createClient<Database>>> | null = null;
 
 export const getSupabase = async () => {
   if (supabaseInstance) return supabaseInstance;
+  if (supabasePromise) return supabasePromise;
 
-  for (let i = 0; i < RETRY_ATTEMPTS; i++) {
+  supabasePromise = (async () => {
     try {
-      const client = createClient<Database>(supabaseUrl, supabaseKey, {
+      let url: string;
+      let anonKey: string;
+
+      // Unterschied zwischen Lokal und Production
+      if (import.meta.env.DEV) {
+        url = import.meta.env.VITE_SUPABASE_URL;
+        anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      } else {
+        const response = await fetch('/.netlify/functions/get-supabase-config');
+        const rawText = await response.text();
+
+        if (!response.ok) {
+          throw new Error(`Failed to get Supabase configuration: ${rawText}`);
+        }
+
+        let config;
+        try {
+          config = JSON.parse(rawText);
+        } catch {
+          throw new Error(`Invalid JSON response from config endpoint: ${rawText}`);
+        }
+
+        url = config.url;
+        anonKey = config.anonKey;
+        
+        if (!url || !anonKey) {
+          throw new Error('Missing required Supabase configuration');
+        }
+      }
+
+      const client = createClient<Database>(url, anonKey, {
         auth: {
           autoRefreshToken: true,
           persistSession: true,
@@ -39,23 +64,24 @@ export const getSupabase = async () => {
           }
         }
       });
-      
+
       // Test connection
-      await client.from('settings').select('*').limit(1);
+      const { error } = await client.from('settings').select('*').limit(1);
+      if (error) throw error;
+
       console.log('✅ Supabase connection successful');
       
       supabaseInstance = client;
       return client;
     } catch (error) {
-      console.warn(`⚠️ Supabase connection attempt ${i + 1} failed:`, error);
+      supabasePromise = null; // Reset on failure
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Failed to connect to Supabase'),
-        context: { attempt: i + 1 }
+        error: error instanceof Error ? error : new Error('Failed to init Supabase'),
+        context: { source: 'getSupabase' }
       });
-
-      if (i === RETRY_ATTEMPTS - 1) throw error;
-      await new Promise(r => setTimeout(r, RETRY_DELAY * (i + 1)));
+      throw error;
     }
-  }
-  throw new Error('Failed to connect to Supabase after multiple attempts');
+  })();
+
+  return supabasePromise;
 };

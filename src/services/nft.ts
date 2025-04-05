@@ -6,7 +6,6 @@ import { base58 } from '@metaplex-foundation/umi/serializers';
 import { monitoring } from './monitoring';
 import { getSupabase } from '../lib/supabase';
 
-const DEFAULT_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
 const MAX_IMAGE_SIZE_MB = 10;
 const TX_CONFIRMATION_TIMEOUT_MS = 30000;
 
@@ -16,7 +15,7 @@ export class NFTService {
   private retryDelay = 1000;
 
   constructor() {
-    this.umi = createUmi(DEFAULT_RPC_URL).use(irysUploader());
+    this.umi = createUmi(process.env.SOLANA_RPC_URL).use(irysUploader());
   }
 
   async mintNFT(

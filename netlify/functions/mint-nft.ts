@@ -1,46 +1,68 @@
-import { Handler } from '@netlify/functions'
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
-import { irysUploader } from '@metaplex-foundation/umi-uploader-irys'
-import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi'
-import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata'
-import { base58 } from '@metaplex-foundation/umi/serializers'
-import { createClient } from '@supabase/supabase-js'
+import { Handler } from '@netlify/functions';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
+import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
+import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
+import { base58 } from '@metaplex-foundation/umi/serializers';
+import { supabase } from './supabase-client';
 
-const rpcUrl = process.env.VITE_SOLANA_RPC_URL as string
-const supabaseUrl = process.env.VITE_SUPABASE_URL as string
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY as string
+const rpcUrl = process.env.SOLANA_RPC_URL;
+if (!rpcUrl) {
+  throw new Error('Missing Solana RPC URL');
+}
 
-const supabase = createClient(supabaseUrl, supabaseKey)
-const umi = createUmi(rpcUrl).use(irysUploader())
+const umi = createUmi(rpcUrl).use(irysUploader());
 
 export const handler: Handler = async (event) => {
-  try {
-    const { wallet, name, description, imageUrl, x, y } = JSON.parse(event.body || '{}')
-    const walletPublicKey = publicKey(wallet)
+  if (!event.body) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing request body' }) };
+  }
 
+  try {
+    const { wallet, name, description, imageUrl, x, y } = JSON.parse(event.body);
+
+    if (!wallet || !name || !description || !imageUrl) {
+      return { 
+        statusCode: 400, 
+        body: JSON.stringify({ error: 'Missing required fields' }) 
+      };
+    }
+
+    const walletPublicKey = publicKey(wallet);
+
+    // Verify pixel availability
     const { data: existingPixel } = await supabase
       .from('pixels')
       .select('x, y')
       .eq('x', x)
       .eq('y', y)
-      .maybeSingle()
+      .maybeSingle();
 
     if (existingPixel) {
-      return { statusCode: 400, body: JSON.stringify({ error: `Pixel (${x}, ${y}) vergeben.` }) }
+      return { 
+        statusCode: 400, 
+        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` }) 
+      };
     }
 
+    // Setup Umi with wallet
     umi.use(signerIdentity(createSignerFromKeypair(umi, {
       publicKey: walletPublicKey,
-      secretKey: new Uint8Array(64) // Platzhalter
-    })))
+      secretKey: new Uint8Array(64) // Dummy - wird von der realen Wallet ersetzt
+    })));
 
-    const imageResponse = await fetch(imageUrl)
-    const imageBuffer = await imageResponse.arrayBuffer()
+    // Validate image
+    const imageResponse = await fetch(imageUrl);
+    const imageBuffer = await imageResponse.arrayBuffer();
 
     if (imageBuffer.byteLength > 10 * 1024 * 1024) {
-      return { statusCode: 400, body: 'Bild zu groß.' }
+      return { 
+        statusCode: 400, 
+        body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' }) 
+      };
     }
 
+    // Prepare metadata
     const metadata = {
       name,
       symbol: 'TRUMPILLION',
@@ -55,11 +77,15 @@ export const handler: Handler = async (event) => {
         category: 'image',
         creators: [{ address: base58.serialize(walletPublicKey), share: 100 }]
       }
-    }
+    };
 
-    const { uri } = await umi.uploader.uploadJson(metadata)
-    const mint = generateSigner(umi)
+    // Upload metadata
+    const { uri } = await umi.uploader.uploadJson(metadata);
 
+    // Generate mint
+    const mint = generateSigner(umi);
+
+    // Create NFT
     await createV1(umi, {
       mint,
       name,
@@ -68,11 +94,24 @@ export const handler: Handler = async (event) => {
       sellerFeeBasisPoints: 500,
       tokenStandard: TokenStandard.NonFungible,
       creators: [{ address: walletPublicKey, share: 100, verified: true }]
-    }).sendAndConfirm(umi)
+    }).sendAndConfirm(umi);
 
-    return { statusCode: 200, body: JSON.stringify({ success: true, mint: mint.publicKey.toString() }) }
+    return { 
+      statusCode: 200, 
+      body: JSON.stringify({ 
+        success: true, 
+        mint: mint.publicKey.toString() 
+      }) 
+    };
 
   } catch (error: any) {
-    return { statusCode: 500, body: JSON.stringify({ error: error.message || 'Fehler beim Mint' }) }
+    console.error('NFT minting error:', error);
+
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ 
+        error: error.message || 'Fehler beim NFT Minting' 
+      }) 
+    };
   }
-}
+};

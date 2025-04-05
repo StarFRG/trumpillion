@@ -36,30 +36,37 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     },
 
     setupRealtimeSubscription: async () => {
-      const supabase = await getSupabase();
-      realtimeSubscription = supabase
-        .channel('pixels')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'pixels'
-          },
-          async (payload) => {
-            const { new: newPixel } = payload;
-            if (!newPixel || !validatePixel(newPixel)) return;
+      try {
+        const supabase = await getSupabase();
+        realtimeSubscription = supabase
+          .channel('pixels')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'pixels'
+            },
+            async (payload) => {
+              const { new: newPixel } = payload;
+              if (!newPixel || !validatePixel(newPixel)) return;
 
-            const pixels = get().pixels;
-            const { x, y } = newPixel;
+              const pixels = get().pixels;
+              const { x, y } = newPixel;
 
-            if (validateCoordinates(x, y)) {
-              pixels[y][x] = newPixel;
-              set({ pixels: [...pixels] });
+              if (validateCoordinates(x, y)) {
+                pixels[y][x] = newPixel;
+                set({ pixels: [...pixels] });
+              }
             }
-          }
-        )
-        .subscribe();
+          )
+          .subscribe();
+      } catch (error) {
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error('Failed to setup realtime subscription'),
+          context: { action: 'setup_realtime' }
+        });
+      }
     },
 
     setSelectedPixel: (pixel) => {
@@ -118,6 +125,10 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
         if (error) throw error;
 
+        if (!Array.isArray(data)) {
+          throw new Error('Invalid response format from database');
+        }
+
         const pixels = get().pixels;
         
         // Reset pixels in range
@@ -136,8 +147,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
         set({ pixels: [...pixels], loading: false });
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load pixels';
         monitoring.logError({
-          error: error instanceof Error ? error : new Error('Failed to load pixels'),
+          error: error instanceof Error ? error : new Error(errorMessage),
           context: { 
             action: 'load_pixels',
             startRow,
@@ -146,10 +158,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             endCol
           }
         });
-        set({ 
-          error: error instanceof Error ? error.message : 'Failed to load pixels',
-          loading: false 
-        });
+        set({ error: errorMessage, loading: false });
       }
     },
 
