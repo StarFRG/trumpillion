@@ -4,7 +4,7 @@ import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { monitoring } from './monitoring';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 
 const DEFAULT_RPC_URL = 'https://powerful-small-needle.solana-mainnet.quiknode.pro/025d650e2597bb80e708ac95bdf4a004dd00ba02/';
 const MAX_IMAGE_SIZE_MB = 10;
@@ -30,6 +30,7 @@ export class NFTService {
     const walletPublicKey = publicKey(wallet);
 
     // Validierung der Koordinaten in der Datenbank
+    const supabase = await getSupabase();
     const { data: existingPixel } = await supabase
       .from('pixels')
       .select('x, y')
@@ -103,6 +104,7 @@ export class NFTService {
         if (attempt === this.retryCount) {
           const fileName = imageUrl.split('/').pop();
           if (fileName) {
+            const supabase = await getSupabase();
             await supabase.storage.from('nft-images').remove([fileName]);
           }
 

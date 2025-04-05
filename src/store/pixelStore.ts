@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { PixelData } from '../types';
 import { getSupabase } from '../lib/supabase';
-import { validatePixel, validateCoordinates, validateImageUrl } from '../utils/validation';
+import { validatePixel, validateCoordinates } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 
 interface PixelGridState {

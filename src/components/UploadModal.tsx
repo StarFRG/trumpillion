@@ -3,7 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletButton } from './WalletButton';
 import { Upload, X } from 'lucide-react';
 import { usePixelStore } from '../store/pixelStore';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 import { solanaService } from '../services/solana';
 import { monitoring } from '../services/monitoring';
 
@@ -95,6 +95,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const fileName = uploadedImageUrl.split('/').pop();
       if (fileName) {
         try {
+          const supabase = await getSupabase();
           await supabase.storage.from("nft-images").remove([fileName]);
         } catch (error) {
           monitoring.logError({
@@ -120,6 +121,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setError(null);
 
     try {
+      const supabase = await getSupabase();
+      
       // Check if pixel is already owned
       const { data: existingPixel, error: fetchError } = await supabase
         .from("pixels")
@@ -200,6 +203,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (uploadedImageUrl) {
         const fileName = uploadedImageUrl.split('/').pop();
         if (fileName) {
+          const supabase = await getSupabase();
           await supabase.storage.from("nft-images").remove([fileName]);
         }
         setUploadedImageUrl(null);
@@ -216,7 +220,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={handleCancel} />
       <div className="relative bg-gray-900 rounded-xl shadow-xl p-6 w-[400px] max-w-[90vw] z-[60]">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold">Upload Image</h3>
+          <h3 className="text-xl font-bold">Bild hochladen</h3>
           <button 
             onClick={handleCancel}
             className="text-gray-400 hover:text-white transition-colors"
@@ -227,7 +231,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
         {!wallet.connected ? (
           <div className="text-center py-8">
-            <p className="text-gray-300 mb-4">Connect your wallet to continue</p>
+            <p className="text-gray-300 mb-4">Verbinde dein Wallet um fortzufahren</p>
             <WalletButton />
           </div>
         ) : (
@@ -251,21 +255,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
               <p className="text-gray-300">
                 {uploadedFile 
                   ? uploadedFile.name
-                  : 'Drag and drop your image here, or click to browse'
+                  : 'Ziehe dein Bild hierher oder klicke zum Auswählen'
                 }
               </p>
               <p className="text-sm text-gray-500 mt-2">
-                Supports JPG, PNG and GIF • Max 10MB
+                Unterstützt JPG, PNG und GIF • Max 10MB
               </p>
             </div>
 
             {selectedPixel && (
               <div className="mb-6 p-4 bg-gray-800 rounded-lg">
-                <p className="text-sm text-gray-400">Selected Pixel</p>
+                <p className="text-sm text-gray-400">Ausgewähltes Pixel</p>
                 <p className="font-mono text-white">
                   ({selectedPixel.x}, {selectedPixel.y})
                 </p>
-                <p className="text-sm text-gray-400 mt-2">Price</p>
+                <p className="text-sm text-gray-400 mt-2">Preis</p>
                 <p className="font-mono text-white">1 SOL</p>
               </div>
             )}
@@ -288,12 +292,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  Processing...
+                  Verarbeite...
                 </>
               ) : uploadSuccess ? (
-                'Success!'
+                'Erfolgreich!'
               ) : (
-                'Mint NFT (1 SOL)'
+                'NFT erstellen (1 SOL)'
               )}
             </button>
           </>

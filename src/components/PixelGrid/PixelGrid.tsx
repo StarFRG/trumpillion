@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo, useRef } from "react"
 import OpenSeadragon from "openseadragon";
 import { usePixelStore } from "../../store/pixelStore";
 import { GRID_WIDTH, GRID_HEIGHT, PIXEL_SIZE, PixelData } from "../../types";
-import { supabase } from "../../lib/supabase";
+import { getSupabase } from "../../lib/supabase";
 import PixelModal from "../PixelModal";
 import { ShareModal } from "../ShareModal";
 import { debounce } from "lodash";
@@ -80,6 +80,7 @@ const PixelGrid: React.FC = () => {
       const defaultImage = "/mosaic.jpg";
       
       try {
+        const supabase = await getSupabase();
         const { data, error } = await supabase
           .from("settings")
           .select("value")

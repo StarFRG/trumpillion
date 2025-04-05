@@ -2,7 +2,7 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { useWalletConnection } from '../../hooks/useWalletConnection';
 import { Upload, X, Share2, Twitter, Facebook } from 'lucide-react';
 import { usePixelStore } from '../../store/pixelStore';
-import { supabase } from '../../lib/supabase';
+import { getSupabase } from '../../lib/supabase';
 import { solanaService } from '../../services/solana';
 import { useTranslation } from 'react-i18next';
 import { monitoring } from '../../services/monitoring';
@@ -46,6 +46,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       try {
         if (pixel) {
           // Verify pixel is not already taken
+          const supabase = await getSupabase();
           const { data: existingPixel } = await supabase
             .from('pixels')
             .select('owner')
@@ -158,6 +159,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     if (uploadedImageUrl) {
       const fileName = uploadedImageUrl.split('/').pop();
       if (fileName) {
+        const supabase = await getSupabase();
         await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
       }
     }
@@ -199,6 +201,8 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       // Upload image
       const fileExt = uploadedFile.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
+      
+      const supabase = await getSupabase();
       
       // Check if file already exists
       const { data: existingFile } = await supabase.storage
@@ -272,6 +276,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       if (uploadedImageUrl) {
         const fileName = uploadedImageUrl.split('/').pop();
         if (fileName) {
+          const supabase = await getSupabase();
           await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
         }
         setUploadedImageUrl(null);
@@ -426,4 +431,4 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
 
 export default PixelModal;
 
-export { PixelModal }
+export { PixelModal };

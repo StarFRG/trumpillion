@@ -75,9 +75,9 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
           }`}
       >
         {uploading ? (
-          <span className="text-gray-500">Uploading...</span>
+          <span className="text-gray-500">Lädt hoch...</span>
         ) : (
-          <span className="text-gray-700">Click to upload image</span>
+          <span className="text-gray-700">Klicke zum Hochladen</span>
         )}
       </label>
     </div>

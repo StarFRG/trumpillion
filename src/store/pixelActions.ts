@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
 import { PixelData } from '../types';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
 
 export interface PixelGridState {
@@ -32,7 +32,8 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
       }
     },
 
-    setupRealtimeSubscription: () => {
+    setupRealtimeSubscription: async () => {
+      const supabase = await getSupabase();
       realtimeSubscription = supabase
         .channel('pixels')
         .on(
@@ -68,6 +69,7 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
 
     updatePixel: async (pixel) => {
       try {
+        const supabase = await getSupabase();
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -97,6 +99,7 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
       try {
         set({ loading: true, error: null });
 
+        const supabase = await getSupabase();
         const { data, error } = await supabase
           .from('pixels')
           .select('*')
@@ -109,7 +112,7 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
 
         const pixels = get().pixels;
         
-        // Reset pixels in the requested range
+        // Reset pixels in range
         for (let y = startRow; y <= endRow; y++) {
           for (let x = startCol; x <= endCol; x++) {
             pixels[y][x] = null;
