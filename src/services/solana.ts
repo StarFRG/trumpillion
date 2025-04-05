@@ -19,9 +19,11 @@ export class SolanaService {
       ? import.meta.env.VITE_SOLANA_RPC_URL 
       : 'https://api.mainnet-beta.solana.com'; // Fallback for balance checks only
 
+    const wsEndpoint = endpoint?.replace('https://', 'wss://') ?? undefined;
+
     this.connection = new Connection(endpoint, {
       commitment: 'confirmed',
-      wsEndpoint: endpoint.replace('https://', 'wss://'),
+      wsEndpoint: wsEndpoint,
       confirmTransactionInitialTimeout: 60000
     });
   }

@@ -11,6 +11,7 @@ interface Props {
 
 export const WalletContextProvider: FC<Props> = ({ children }) => {
   const endpoint = useMemo(() => import.meta.env.VITE_SOLANA_RPC_URL, []);
+  const wsEndpoint = endpoint?.replace('https://', 'wss://') ?? undefined;
   
   const wallets = useMemo(
     () => [
@@ -25,7 +26,7 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
       endpoint={endpoint}
       config={{
         commitment: 'confirmed',
-        wsEndpoint: endpoint.replace('https', 'wss'),
+        wsEndpoint: wsEndpoint,
         confirmTransactionInitialTimeout: 60000
       }}
     >

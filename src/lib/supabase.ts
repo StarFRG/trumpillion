@@ -44,6 +44,8 @@ export const getSupabase = async () => {
         }
       }
 
+      const wsEndpoint = url?.replace('https://', 'wss://') ?? undefined;
+
       const client = createClient<Database>(url, anonKey, {
         auth: {
           autoRefreshToken: true,
