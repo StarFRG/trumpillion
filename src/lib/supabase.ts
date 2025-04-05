@@ -21,32 +21,39 @@ export const getSupabase = async () => {
       if (import.meta.env.DEV) {
         url = import.meta.env.VITE_SUPABASE_URL;
         anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+        if (!url || !url.startsWith('http')) {
+          throw new Error('Fehlende oder ungültige Supabase URL');
+        }
+        if (!anonKey) {
+          throw new Error('Fehlender Supabase Anon Key');
+        }
       } else {
         const response = await fetch('/.netlify/functions/get-supabase-config');
         const rawText = await response.text();
 
         if (!response.ok) {
-          throw new Error(`Failed to get Supabase configuration: ${rawText}`);
+          throw new Error(`Fehler beim Laden der Supabase Konfiguration: ${rawText}`);
         }
 
         let config;
         try {
           config = JSON.parse(rawText);
         } catch {
-          throw new Error(`Invalid JSON response from config endpoint: ${rawText}`);
+          throw new Error(`Ungültige JSON-Antwort vom Config Endpoint: ${rawText}`);
         }
 
         url = config.url;
         anonKey = config.anonKey;
         
-        if (!url || !anonKey) {
-          throw new Error('Missing required Supabase configuration');
+        if (!url || !url.startsWith('http')) {
+          throw new Error('Ungültige Supabase URL vom Server');
+        }
+        if (!anonKey) {
+          throw new Error('Fehlender Supabase Anon Key vom Server');
         }
       }
 
-      if (!url || !url.startsWith('http')) {
-        throw new Error('Missing or invalid endpoint');
-      }
       const wsEndpoint = url.replace('https', 'wss');
 
       const client = createClient<Database>(url, anonKey, {

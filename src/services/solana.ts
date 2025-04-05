@@ -2,33 +2,44 @@ import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } f
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import { monitoring } from './monitoring';
 import { mintNftFromServer } from '../api/mintNft';
+import { getRpcEndpoint } from '../lib/getRpcEndpoint';
 
 const NETWORK = 'mainnet-beta';
 const PROJECT_WALLET = new PublicKey('4PvW69mVK1hZpaSmfge3XUWWBhfuceaegeoiD3BTCnB6');
 const PIXEL_PRICE = 1 * LAMPORTS_PER_SOL; // 1 SOL
 
 export class SolanaService {
-  private connection: Connection;
+  private connection: Connection | null = null;
   private retryCount = 3;
   private retryDelay = 1000;
 
-  constructor() {
-    // In Development: Use local RPC URL
-    // In Production: Use Netlify Function for RPC operations
-    const endpoint = import.meta.env.DEV 
-      ? import.meta.env.VITE_SOLANA_RPC_URL 
-      : 'https://api.mainnet-beta.solana.com'; // Fallback for balance checks only
+  private async initConnection() {
+    if (this.connection) return;
 
-    if (!endpoint || !endpoint.startsWith('http')) {
-      throw new Error('Missing or invalid endpoint');
+    try {
+      const endpoint = await getRpcEndpoint();
+      this.connection = new Connection(endpoint, {
+        commitment: 'confirmed',
+        wsEndpoint: endpoint.replace('https', 'wss'),
+        confirmTransactionInitialTimeout: 60000
+      });
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Connection initialization failed'),
+        context: { action: 'init_connection' }
+      });
+      throw error;
     }
-    const wsEndpoint = endpoint.replace('https', 'wss');
+  }
 
-    this.connection = new Connection(endpoint, {
-      commitment: 'confirmed',
-      wsEndpoint: wsEndpoint,
-      confirmTransactionInitialTimeout: 60000
-    });
+  private async getConnection(): Promise<Connection> {
+    if (!this.connection) {
+      await this.initConnection();
+    }
+    if (!this.connection) {
+      throw new Error('Verbindung konnte nicht initialisiert werden');
+    }
+    return this.connection;
   }
 
   private async retry<T>(operation: () => Promise<T>): Promise<T> {
@@ -56,7 +67,9 @@ export class SolanaService {
 
     return await this.retry(async () => {
       try {
-        const balance = await this.connection.getBalance(wallet.publicKey!);
+        const connection = await this.getConnection();
+        const balance = await connection.getBalance(wallet.publicKey!);
+        
         if (balance < PIXEL_PRICE + 5000) { // 5000 lamports for transaction fee
           throw new Error('Unzureichendes Guthaben. Du brauchst mindestens 1 SOL um ein Pixel zu kaufen.');
         }
@@ -69,18 +82,18 @@ export class SolanaService {
           })
         );
 
-        const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = wallet.publicKey;
 
         const signedTx = await wallet.signTransaction(transaction);
-        const txId = await this.connection.sendRawTransaction(signedTx.serialize(), {
+        const txId = await connection.sendRawTransaction(signedTx.serialize(), {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
           maxRetries: 3
         });
 
-        const confirmation = await this.connection.confirmTransaction({
+        const confirmation = await connection.confirmTransaction({
           signature: txId,
           blockhash: blockhash,
           lastValidBlockHeight: lastValidBlockHeight
@@ -142,7 +155,8 @@ export class SolanaService {
   async getWalletBalance(publicKey: PublicKey): Promise<number> {
     return await this.retry(async () => {
       try {
-        const balance = await this.connection.getBalance(publicKey);
+        const connection = await this.getConnection();
+        const balance = await connection.getBalance(publicKey);
         return balance / LAMPORTS_PER_SOL;
       } catch (error) {
         console.error('Wallet Balance Abfrage fehlgeschlagen:', error);
