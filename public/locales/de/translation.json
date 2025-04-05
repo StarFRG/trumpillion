@@ -1,0 +1,78 @@
+{
+  "common": {
+    "loading": "Lädt...",
+    "error": "Ein Fehler ist aufgetreten",
+    "retry": "Erneut versuchen",
+    "close": "Schließen"
+  },
+  "wallet": {
+    "connect": {
+      "prompt": "Bitte verbinde dein Wallet um fortzufahren",
+      "button": "Wallet verbinden"
+    },
+    "connected": "Verbunden",
+    "disconnect": "Trennen",
+    "error": {
+      "notConnected": "Wallet nicht verbunden",
+      "invalid": "Ungültiges Wallet",
+      "insufficientFunds": "Unzureichendes Guthaben"
+    }
+  },
+  "pixel": {
+    "title": "Dein Trump Moment",
+    "coordinates": "Ausgewähltes Pixel",
+    "defaultTitle": "Unbenannter Trump Moment",
+    "defaultDescription": "Keine Beschreibung vorhanden",
+    "upload": {
+      "title": "Bild hochladen",
+      "button": "Hochladen",
+      "dragDrop": "Ziehe dein Bild hierher oder klicke zum Auswählen",
+      "formats": "Unterstützt JPG, PNG und GIF • Max 10MB",
+      "error": {
+        "format": "Bitte nur JPG, PNG oder GIF-Dateien hochladen",
+        "size": "Dateigröße muss zwischen 1KB und 10MB liegen",
+        "noFile": "Bitte wähle eine Datei aus"
+      }
+    },
+    "mint": {
+      "button": "NFT erstellen (1 SOL)",
+      "processing": "Verarbeite...",
+      "success": "Erfolgreich!",
+      "error": {
+        "failed": "NFT konnte nicht erstellt werden",
+        "noDetails": "Bitte fülle alle Felder aus"
+      }
+    },
+    "error": {
+      "noPixel": "Kein Pixel ausgewählt",
+      "noFreePixel": "Keine freien Pixel verfügbar",
+      "alreadyOwned": "Dieses Pixel ist bereits vergeben"
+    }
+  },
+  "share": {
+    "title": "Teile diesen Moment",
+    "copyLink": "Link kopieren",
+    "copied": "Link kopiert!",
+    "social": {
+      "twitter": "Auf Twitter teilen",
+      "facebook": "Auf Facebook teilen",
+      "whatsapp": "Über WhatsApp teilen"
+    }
+  },
+  "payment": {
+    "title": "Zahlung abschließen",
+    "qrCode": "Scanne mit deiner Solana Pay Wallet",
+    "amount": "Betrag: 1 SOL",
+    "waiting": "Warte auf Zahlungsbestätigung...",
+    "error": {
+      "timeout": "Zeitüberschreitung bei der Zahlung",
+      "failed": "Zahlung fehlgeschlagen",
+      "insufficient": "Unzureichendes Guthaben"
+    }
+  },
+  "error": {
+    "title": "Oops, etwas ist schiefgelaufen!",
+    "description": "Es tut uns leid, aber es ist ein Fehler aufgetreten. Bitte lade die Seite neu.",
+    "reload": "Seite neu laden"
+  }
+}

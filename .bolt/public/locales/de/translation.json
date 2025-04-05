@@ -1,0 +1,43 @@
+{
+  "common": {
+    "loading": "Lädt...",
+    "error": "Ein Fehler ist aufgetreten",
+    "retry": "Erneut versuchen",
+    "close": "Schließen"
+  },
+  "wallet": {
+    "connect": "Wallet verbinden",
+    "connected": "Verbunden",
+    "disconnect": "Trennen"
+  },
+  "pixel": {
+    "title": "Dein Trump Moment",
+    "coordinates": "Ausgewähltes Pixel",
+    "upload": {
+      "title": "Bild hochladen",
+      "button": "Hochladen",
+      "dragDrop": "Ziehe dein Bild hierher oder klicke zum Auswählen",
+      "formats": "Unterstützt JPG, PNG und GIF • Max 10MB"
+    },
+    "mint": {
+      "button": "NFT erstellen (1 SOL)",
+      "processing": "Verarbeite...",
+      "success": "Erfolgreich!"
+    }
+  },
+  "share": {
+    "title": "Teile diesen Moment",
+    "copyLink": "Link kopieren",
+    "copied": "Link kopiert!",
+    "social": {
+      "twitter": "Auf Twitter teilen",
+      "facebook": "Auf Facebook teilen",
+      "whatsapp": "Über WhatsApp teilen"
+    }
+  },
+  "error": {
+    "title": "Oops, etwas ist schiefgelaufen!",
+    "description": "Es tut uns leid, aber es ist ein Fehler aufgetreten. Bitte lade die Seite neu.",
+    "reload": "Seite neu laden"
+  }
+}

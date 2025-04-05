@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #18181b;
+  color: white;
+  font-family: "Roboto", sans-serif;
+}
+
+button {
+  transition: background 0.3s;
+}
+
+button:hover {
+  opacity: 0.8;
+}
+
+.font-serif {
+  font-family: 'Playfair Display', serif;
+}
+
+.wallet-button-container .wallet-adapter-button {
+  height: auto;
+  padding: 0.75rem 1.5rem;
+  font-family: inherit;
+  background: transparent;
+  color: #e5e7eb;
+  transition: color 0.2s;
+}
+
+.wallet-button-container .wallet-adapter-button:hover {
+  color: white;
+  background: transparent;
+}
+
+.wallet-button-container .wallet-adapter-button.connected {
+  @apply bg-transparent text-gray-300 hover:text-white p-0;
+}
+
+.grid-overlay {
+  display: none !important;
+}
+
+.hover-box {
+  position: absolute;
+  border: 2px solid rgba(255, 0, 0, 0.8);
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 9999;
+  will-change: transform, opacity;
+  background: rgba(255, 0, 0, 0.15);
+  backdrop-filter: blur(2px);
+  transition: opacity 0.15s ease-out;
+  opacity: 0;
+  visibility: visible;
+  box-sizing: border-box;
+  image-rendering: pixelated;
+}
+
+.hover-box.has-content {
+  border-color: rgba(255, 0, 0, 0.9);
+  box-shadow: 
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 0 15px rgba(255, 0, 0, 0.4);
+  background: rgba(255, 0, 0, 0.2);
+}
+
+.pixel-overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.8;
+  transition: opacity 0.3s ease-in-out;
+  mix-blend-mode: normal;
+  pointer-events: none;
+  image-rendering: pixelated;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.pixel-overlay:hover {
+  opacity: 1;
+}
+
+/* Wallet Modal Styles */
+.wallet-adapter-modal {
+  @apply bg-gray-900 !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  @apply bg-gray-900 !important;
+}
+
+.wallet-adapter-modal-button-close {
+  @apply bg-gray-800 text-gray-400 hover:text-white !important;
+}
+
+.wallet-adapter-modal-title {
+  @apply text-white !important;
+}
+
+.wallet-adapter-modal-list {
+  @apply m-0 !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  @apply bg-gray-800 text-white hover:bg-gray-700 !important;
+  @apply font-normal !important;
+  @apply mb-2 !important;
+}

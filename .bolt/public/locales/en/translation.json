@@ -1,0 +1,43 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "close": "Close"
+  },
+  "wallet": {
+    "connect": "Connect Wallet",
+    "connected": "Connected",
+    "disconnect": "Disconnect"
+  },
+  "pixel": {
+    "title": "Your Trump Moment",
+    "coordinates": "Selected Pixel",
+    "upload": {
+      "title": "Upload Image",
+      "button": "Upload",
+      "dragDrop": "Drag and drop your image here, or click to browse",
+      "formats": "Supports JPG, PNG and GIF • Max 10MB"
+    },
+    "mint": {
+      "button": "Mint NFT (1 SOL)",
+      "processing": "Processing...",
+      "success": "Success!"
+    }
+  },
+  "share": {
+    "title": "Share this moment",
+    "copyLink": "Copy Link",
+    "copied": "Link copied!",
+    "social": {
+      "twitter": "Share on Twitter",
+      "facebook": "Share on Facebook",
+      "whatsapp": "Share on WhatsApp"
+    }
+  },
+  "error": {
+    "title": "Oops, something went wrong!",
+    "description": "We're sorry, but an error occurred. Please try reloading the page.",
+    "reload": "Reload Page"
+  }
+}

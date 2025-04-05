@@ -1,0 +1,10 @@
+export const HOVER_TIMEOUT = 500;
+export const IMAGE_LOAD_TIMEOUT = 10000; // 10 seconds
+export const MAX_RETRIES = 3;
+export const RETRY_DELAY = 2000; // 2 seconds
+export const DRAG_THRESHOLD = 10; // pixels
+export const CLICK_TIMEOUT = 250; // milliseconds
+export const MAX_ZOOM = 12;
+export const ZOOM_LEVELS = [1, 3, 6, MAX_ZOOM];
+export const MIN_OPACITY = 0.5;
+export const MAX_OPACITY = 1.0;

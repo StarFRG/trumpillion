@@ -1,0 +1,78 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "close": "Close"
+  },
+  "wallet": {
+    "connect": {
+      "prompt": "Please connect your wallet to continue",
+      "button": "Connect Wallet"
+    },
+    "connected": "Connected",
+    "disconnect": "Disconnect",
+    "error": {
+      "notConnected": "Wallet not connected",
+      "invalid": "Invalid wallet",
+      "insufficientFunds": "Insufficient funds"
+    }
+  },
+  "pixel": {
+    "title": "Your Trump Moment",
+    "coordinates": "Selected Pixel",
+    "defaultTitle": "Untitled Trump Moment",
+    "defaultDescription": "No description provided",
+    "upload": {
+      "title": "Upload Image",
+      "button": "Upload",
+      "dragDrop": "Drag and drop your image here, or click to browse",
+      "formats": "Supports JPG, PNG and GIF • Max 10MB",
+      "error": {
+        "format": "Please upload only JPG, PNG or GIF files",
+        "size": "File size must be between 1KB and 10MB",
+        "noFile": "Please select a file"
+      }
+    },
+    "mint": {
+      "button": "Mint NFT (1 SOL)",
+      "processing": "Processing...",
+      "success": "Success!",
+      "error": {
+        "failed": "Failed to mint NFT",
+        "noDetails": "Please fill in all fields"
+      }
+    },
+    "error": {
+      "noPixel": "No pixel selected",
+      "noFreePixel": "No free pixels available",
+      "alreadyOwned": "This pixel is already owned"
+    }
+  },
+  "share": {
+    "title": "Share this moment",
+    "copyLink": "Copy Link",
+    "copied": "Link copied!",
+    "social": {
+      "twitter": "Share on Twitter",
+      "facebook": "Share on Facebook",
+      "whatsapp": "Share on WhatsApp"
+    }
+  },
+  "payment": {
+    "title": "Complete Payment",
+    "qrCode": "Scan with your Solana Pay wallet",
+    "amount": "Amount: 1 SOL",
+    "waiting": "Waiting for payment confirmation...",
+    "error": {
+      "timeout": "Payment timed out",
+      "failed": "Payment failed",
+      "insufficient": "Insufficient funds"
+    }
+  },
+  "error": {
+    "title": "Oops, something went wrong!",
+    "description": "We're sorry, but an error occurred. Please try reloading the page.",
+    "reload": "Reload Page"
+  }
+}
