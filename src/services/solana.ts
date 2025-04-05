@@ -1,7 +1,7 @@
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
-import { nftService } from './nft';
 import { monitoring } from './monitoring';
+import { mintNftFromServer } from '../api/mintNft';
 
 const NETWORK = 'mainnet-beta';
 const ENDPOINT = import.meta.env.VITE_SOLANA_RPC_URL;
@@ -109,16 +109,14 @@ export class SolanaService {
     }
 
     try {
-      const nft = await nftService.mintNFT(
-        wallet.publicKey.toString(),
+      return await mintNftFromServer({
+        wallet: wallet.publicKey.toString(),
         name,
         description,
         imageUrl,
-        x || 0,
-        y || 0
-      );
-
-      return nft.toString();
+        x: x || 0,
+        y: y || 0
+      });
     } catch (error) {
       console.error('NFT Minting fehlgeschlagen:', error);
       monitoring.logError({

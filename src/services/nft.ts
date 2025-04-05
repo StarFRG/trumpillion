@@ -6,7 +6,7 @@ import { base58 } from '@metaplex-foundation/umi/serializers';
 import { monitoring } from './monitoring';
 import { getSupabase } from '../lib/supabase';
 
-const DEFAULT_RPC_URL = 'https://powerful-small-needle.solana-mainnet.quiknode.pro/025d650e2597bb80e708ac95bdf4a004dd00ba02/';
+const DEFAULT_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
 const MAX_IMAGE_SIZE_MB = 10;
 const TX_CONFIRMATION_TIMEOUT_MS = 30000;
 
