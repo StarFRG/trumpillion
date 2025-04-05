@@ -19,7 +19,10 @@ export class SolanaService {
       ? import.meta.env.VITE_SOLANA_RPC_URL 
       : 'https://api.mainnet-beta.solana.com'; // Fallback for balance checks only
 
-    const wsEndpoint = endpoint?.replace('https://', 'wss://') ?? undefined;
+    if (!endpoint || !endpoint.startsWith('http')) {
+      throw new Error('Missing or invalid endpoint');
+    }
+    const wsEndpoint = endpoint.replace('https', 'wss');
 
     this.connection = new Connection(endpoint, {
       commitment: 'confirmed',

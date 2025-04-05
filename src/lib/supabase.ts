@@ -44,7 +44,10 @@ export const getSupabase = async () => {
         }
       }
 
-      const wsEndpoint = url?.replace('https://', 'wss://') ?? undefined;
+      if (!url || !url.startsWith('http')) {
+        throw new Error('Missing or invalid endpoint');
+      }
+      const wsEndpoint = url.replace('https', 'wss');
 
       const client = createClient<Database>(url, anonKey, {
         auth: {

@@ -11,7 +11,11 @@ interface Props {
 
 export const WalletContextProvider: FC<Props> = ({ children }) => {
   const endpoint = useMemo(() => import.meta.env.VITE_SOLANA_RPC_URL, []);
-  const wsEndpoint = endpoint?.replace('https://', 'wss://') ?? undefined;
+  
+  if (!endpoint || !endpoint.startsWith('http')) {
+    throw new Error('Missing or invalid endpoint');
+  }
+  const wsEndpoint = endpoint.replace('https', 'wss');
   
   const wallets = useMemo(
     () => [
