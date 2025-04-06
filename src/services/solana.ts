@@ -129,14 +129,48 @@ export class SolanaService {
     }
 
     try {
-      return await mintNftFromServer({
-        wallet: wallet.publicKey.toString(),
-        name,
-        description,
-        imageUrl,
-        x: x || 0,
-        y: y || 0
+      // Get unsigned transaction from server
+      const response = await fetch('/.netlify/functions/mint-nft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          wallet: wallet.publicKey.toString(),
+          name,
+          description,
+          imageUrl,
+          x: x || 0,
+          y: y || 0
+        })
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to get mint transaction');
+      }
+
+      const { transaction: serializedTx, mint } = await response.json();
+      
+      // Deserialize and sign transaction
+      const connection = await this.getConnection();
+      const transaction = Transaction.from(Buffer.from(serializedTx, 'base64'));
+      
+      // Send and confirm transaction
+      const signature = await wallet.sendTransaction(transaction, connection);
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      
+      const confirmation = await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight
+      });
+
+      if (confirmation.value.err) {
+        throw new Error('NFT minting failed');
+      }
+
+      return mint;
     } catch (error) {
       console.error('NFT Minting fehlgeschlagen:', error);
       monitoring.logError({

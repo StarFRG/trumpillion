@@ -45,12 +45,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Setup Umi with wallet
-    umi.use(signerIdentity(createSignerFromKeypair(umi, {
-      publicKey: walletPublicKey,
-      secretKey: new Uint8Array(64) // Dummy - wird von der realen Wallet ersetzt
-    })));
-
     // Validate image
     const imageResponse = await fetch(imageUrl);
     const imageBuffer = await imageResponse.arrayBuffer();
@@ -85,8 +79,8 @@ export const handler: Handler = async (event) => {
     // Generate mint
     const mint = generateSigner(umi);
 
-    // Create NFT
-    await createV1(umi, {
+    // Create unsigned transaction
+    const transaction = createV1(umi, {
       mint,
       name,
       symbol: 'TRUMPILLION',
@@ -94,13 +88,18 @@ export const handler: Handler = async (event) => {
       sellerFeeBasisPoints: 500,
       tokenStandard: TokenStandard.NonFungible,
       creators: [{ address: walletPublicKey, share: 100, verified: true }]
-    }).sendAndConfirm(umi);
+    }).toTransaction();
+
+    // Serialize transaction for client
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false
+    }).toString('base64');
 
     return { 
       statusCode: 200, 
       body: JSON.stringify({ 
-        success: true, 
-        mint: mint.publicKey.toString() 
+        transaction: serializedTransaction,
+        mint: mint.publicKey.toString()
       }) 
     };
 
