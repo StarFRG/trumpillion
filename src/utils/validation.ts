@@ -25,7 +25,10 @@ export const FileValidationSchema = z.object({
   size: z.number()
     .min(1024, 'File must be at least 1KB')
     .max(10 * 1024 * 1024, 'File must not exceed 10MB'),
-  name: z.string().endsWith(z.union(['.jpg', '.jpeg', '.png', '.gif']))
+  name: z.string().refine(
+    (name) => ['.jpg', '.jpeg', '.png', '.gif'].some(ext => name.toLowerCase().endsWith(ext)),
+    'File must have a valid image extension (.jpg, .jpeg, .png, .gif)'
+  )
 });
 
 // Validation Functions
@@ -46,13 +49,22 @@ export const validateFile = (file: File): void => {
   });
 
   if (!validation.success) {
-    throw new Error(validation.error.errors[0].message);
+    const errorMessage = validation.error.errors
+      .map(err => err.message)
+      .join(', ');
+    throw new Error(errorMessage);
   }
 };
 
 export const validateImageUrl = (url: string): boolean => {
   try {
-    return z.string().url().startsWith('https://').parse(url) !== undefined;
+    return z.string()
+      .url()
+      .refine(u => u.startsWith('https://'), {
+        message: 'URL must start with https://'
+      })
+      .safeParse(url)
+      .success;
   } catch {
     return false;
   }

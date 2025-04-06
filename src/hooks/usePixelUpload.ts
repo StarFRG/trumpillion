@@ -39,9 +39,18 @@ export const usePixelUpload = () => {
 
       if (storageError) throw storageError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
+
+      if (!data) {
+        throw new Error('Keine Daten von getPublicUrl erhalten');
+      }
+
+      const publicUrl = data.publicUrl;
+      if (!publicUrl || !publicUrl.startsWith('http')) {
+        throw new Error('Ungültige oder fehlende Public URL');
+      }
 
       const { error: dbError } = await supabase
         .from('pixels')

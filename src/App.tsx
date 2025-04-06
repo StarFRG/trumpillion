@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import PixelGrid from "./components/PixelGrid";
-import PixelModal from "./components/PixelModal";
+import PixelModal from "./components/PixelModal/PixelModal";
 import { Logo } from "./components/Logo";
 import { WalletButton } from "./components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";

@@ -14,7 +14,7 @@ precacheAndRoute(self.__WB_MANIFEST);
 
 // Supabase Cache – 24h gültig, NetworkFirst
 registerRoute(
-  ({ url }) => url.hostname.endsWith('.supabase.co'),
+  ({ url, request }) => url.hostname.endsWith('.supabase.co') && request.method === 'GET',
   new NetworkFirst({
     cacheName: 'supabase-cache',
     networkTimeoutSeconds: 10,

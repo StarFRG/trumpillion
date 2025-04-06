@@ -74,7 +74,11 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
           context: { action: 'initialize_pixel' }
         });
-        setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
+        setError(
+          error instanceof Error 
+            ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
+            : t('pixel.error.noFreePixel')
+        );
       } finally {
         setLoading(false);
       }
@@ -97,7 +101,11 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       setError(null);
       return true;
     } catch (error) {
-      setError(error instanceof Error ? error.message : t('pixel.upload.error.format'));
+      setError(
+        error instanceof Error 
+          ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
+          : t('pixel.upload.error.format')
+      );
       return false;
     }
   }, [previewUrl, t]);
@@ -226,10 +234,15 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
 
       if (storageError) throw storageError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const publicData = supabase.storage
         .from(STORAGE_BUCKET)
         .getPublicUrl(fileName);
 
+      if (!publicData?.data?.publicUrl) {
+        throw new Error('Public URL konnte nicht generiert werden');
+      }
+
+      const publicUrl = publicData.data.publicUrl;
       setUploadedImageUrl(publicUrl);
 
       // Mint NFT
@@ -270,7 +283,11 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           wallet: wallet.publicKey?.toString()
         }
       });
-      setError(error instanceof Error ? error.message : t('common.error'));
+      setError(
+        error instanceof Error 
+          ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
+          : t('common.error')
+      );
       
       // Cleanup on failure
       if (uploadedImageUrl) {

@@ -1,17 +1,25 @@
--- Enable realtime for pixels table
+/*
+  # Enable Realtime Updates
+
+  1. Changes
+    - Create realtime publication
+    - Add pixels table to publication
+    
+  2. Security
+    - No security changes
+*/
+
+-- Enable realtime
 DO $$
 BEGIN
-    -- Check if publication exists
     IF NOT EXISTS (
         SELECT 1
         FROM pg_publication
         WHERE pubname = 'supabase_realtime'
     ) THEN
-        -- Create publication if it doesn't exist
         CREATE PUBLICATION supabase_realtime;
     END IF;
 
-    -- Check if table is in publication
     IF NOT EXISTS (
         SELECT 1
         FROM pg_publication_tables
@@ -19,7 +27,6 @@ BEGIN
         AND schemaname = 'public'
         AND pubname = 'supabase_realtime'
     ) THEN
-        -- Add table to publication if not already present
         ALTER PUBLICATION supabase_realtime ADD TABLE pixels;
     END IF;
 END $$;

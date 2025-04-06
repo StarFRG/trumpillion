@@ -96,7 +96,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (fileName) {
         try {
           const supabase = await getSupabase();
-          await supabase.storage.from("nft-images").remove([fileName]);
+          await supabase.storage.from("pixel-images").remove([fileName]);
         } catch (error) {
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
@@ -155,10 +155,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       if (storageError) throw storageError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const publicData = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
+      if (!publicData?.data?.publicUrl) {
+        throw new Error('Public URL konnte nicht generiert werden');
+      }
+
+      const publicUrl = publicData.data.publicUrl;
       setUploadedImageUrl(publicUrl);
 
       // Mint NFT
@@ -204,7 +209,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         const fileName = uploadedImageUrl.split('/').pop();
         if (fileName) {
           const supabase = await getSupabase();
-          await supabase.storage.from("nft-images").remove([fileName]);
+          await supabase.storage.from("pixel-images").remove([fileName]);
         }
         setUploadedImageUrl(null);
       }

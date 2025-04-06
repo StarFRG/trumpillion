@@ -32,9 +32,15 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
       if (storageError) throw storageError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data, error: publicUrlError } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
+
+      if (publicUrlError || !data?.publicUrl) {
+        throw new Error('Public URL konnte nicht generiert werden');
+      }
+
+      const publicUrl = data.publicUrl;
 
       onSuccess(publicUrl);
     } catch (error) {

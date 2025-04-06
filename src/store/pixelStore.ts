@@ -19,6 +19,8 @@ interface PixelGridState {
 }
 
 const GRID_SIZE = 1000;
+const LOAD_RETRY_ATTEMPTS = 3;
+const LOAD_RETRY_DELAY = 2000;
 
 export const usePixelStore = create<PixelGridState>()((set, get) => {
   let realtimeSubscription: any = null;
@@ -111,55 +113,70 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         throw new Error('Invalid coordinate range');
       }
 
-      try {
-        set({ loading: true, error: null });
+      let attempts = 0;
+      let lastError: Error | null = null;
 
-        const supabase = await getSupabase();
-        const { data, error } = await supabase
-          .from('pixels')
-          .select('*')
-          .gte('x', startCol)
-          .lte('x', endCol)
-          .gte('y', startRow)
-          .lte('y', endRow);
+      while (attempts < LOAD_RETRY_ATTEMPTS) {
+        try {
+          set({ loading: true, error: null });
 
-        if (error) throw error;
+          const supabase = await getSupabase();
+          const { data, error } = await supabase
+            .from('pixels')
+            .select('*')
+            .gte('x', startCol)
+            .lte('x', endCol)
+            .gte('y', startRow)
+            .lte('y', endRow);
 
-        if (!Array.isArray(data)) {
-          throw new Error('Invalid response format from database');
-        }
+          if (error) throw error;
 
-        const pixels = get().pixels;
-        
-        // Reset pixels in range
-        for (let y = startRow; y <= endRow; y++) {
-          for (let x = startCol; x <= endCol; x++) {
-            pixels[y][x] = null;
+          if (!Array.isArray(data)) {
+            throw new Error('Invalid response format from database');
+          }
+
+          const pixels = get().pixels;
+          
+          // Reset pixels in range
+          for (let y = startRow; y <= endRow; y++) {
+            for (let x = startCol; x <= endCol; x++) {
+              pixels[y][x] = null;
+            }
+          }
+
+          // Update with validated pixels
+          data.forEach((pixel: PixelData) => {
+            if (validatePixel(pixel)) {
+              pixels[pixel.y][pixel.x] = pixel;
+            }
+          });
+
+          set({ pixels: [...pixels], loading: false, error: null });
+          return;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Failed to load pixels');
+          attempts++;
+          
+          if (attempts < LOAD_RETRY_ATTEMPTS) {
+            console.warn(`Pixel load attempt ${attempts} failed, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, LOAD_RETRY_DELAY));
           }
         }
-
-        // Update with validated pixels
-        data.forEach((pixel: PixelData) => {
-          if (validatePixel(pixel)) {
-            pixels[pixel.y][pixel.x] = pixel;
-          }
-        });
-
-        set({ pixels: [...pixels], loading: false });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to load pixels';
-        monitoring.logError({
-          error: error instanceof Error ? error : new Error(errorMessage),
-          context: { 
-            action: 'load_pixels',
-            startRow,
-            startCol,
-            endRow,
-            endCol
-          }
-        });
-        set({ error: errorMessage, loading: false });
       }
+
+      const errorMessage = lastError?.message || 'Failed to load pixels after multiple attempts';
+      monitoring.logError({
+        error: lastError || new Error(errorMessage),
+        context: { 
+          action: 'load_pixels',
+          startRow,
+          startCol,
+          endRow,
+          endCol,
+          attempts
+        }
+      });
+      set({ error: errorMessage, loading: false });
     },
 
     getPixelData: (x: number, y: number) => {
