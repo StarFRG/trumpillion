@@ -31,7 +31,11 @@ export const getSupabase = async () => {
             throw new Error('Missing Supabase Anon Key');
           }
         } else {
-          const response = await fetch('/.netlify/functions/get-supabase-config');
+          const response = await fetch('/.netlify/functions/get-supabase-config', {
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
           if (!response.ok) {
             throw new Error(`Failed to load Supabase configuration: ${await response.text()}`);
           }
@@ -59,6 +63,7 @@ export const getSupabase = async () => {
           },
           global: {
             headers: {
+              'Accept': 'application/json',
               'x-application-name': 'trumpillion'
             }
           },

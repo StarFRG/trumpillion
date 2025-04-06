@@ -74,17 +74,18 @@ export class SolanaService {
           throw new Error('Unzureichendes Guthaben. Du brauchst mindestens 1 SOL um ein Pixel zu kaufen.');
         }
 
-        const transaction = new Transaction().add(
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+
+        const transaction = new Transaction({
+          feePayer: wallet.publicKey,
+          recentBlockhash: blockhash
+        }).add(
           SystemProgram.transfer({
             fromPubkey: wallet.publicKey!,
             toPubkey: PROJECT_WALLET,
             lamports: PIXEL_PRICE
           })
         );
-
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = wallet.publicKey;
 
         const signedTx = await wallet.signTransaction(transaction);
         const txId = await connection.sendRawTransaction(signedTx.serialize(), {
