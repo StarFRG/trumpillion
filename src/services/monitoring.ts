@@ -20,6 +20,42 @@ class MonitoringService {
       console.log('Context:', { ...context, user });
       return;
     }
+
+    if (user) {
+      Sentry.setUser(user);
+    }
+
+    if (error instanceof Error) {
+      Sentry.captureException(error, {
+        level,
+        extra: context
+      });
+    } else {
+      Sentry.captureMessage(error, {
+        level,
+        extra: context
+      });
+    }
+  }
+
+  logEvent(name: string, data?: Record<string, any>) {
+    if (this.isDevelopment) {
+      console.log('Event:', name, data);
+      return;
+    }
+
+    Sentry.captureMessage(name, {
+      level: 'info',
+      extra: data
+    });
+  }
+
+  setUser(user: { id?: string; wallet?: string; email?: string } | null) {
+    if (user) {
+      Sentry.setUser(user);
+    } else {
+      Sentry.setUser(null);
+    }
   }
 }
 
