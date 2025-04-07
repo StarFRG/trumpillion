@@ -5,6 +5,26 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import App from './App';
 import './i18n';
 import './index.css';
+import * as Sentry from '@sentry/react';
+import { Replay } from '@sentry/replay';
+
+// Sentry initialization
+Sentry.init({
+  dsn: 'https://0a8b9f06f41a248baab05358a12fb6ff@o4509111588225024.ingest.de.sentry.io/4509111601397840',
+  integrations: [
+    new Sentry.BrowserTracing({
+      tracePropagationTargets: ['localhost', /^https:\/\/trumpillion\.com/],
+    }),
+    new Replay({
+      maskAllText: false,
+      blockAllMedia: false,
+    }),
+  ],
+  tracesSampleRate: 1.0,
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1.0,
+  enabled: import.meta.env.PROD,
+});
 
 // Essential polyfills
 import { Buffer } from 'buffer';
@@ -28,6 +48,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.m
       }
     }).catch(error => {
       console.error('SW registration failed:', error);
+      Sentry.captureException(error);
     });
   });
 }
