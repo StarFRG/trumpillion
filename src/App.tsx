@@ -145,16 +145,6 @@ const App: React.FC = () => {
                     </motion.div>
                   ))}
                 </div>
-
-                {/* Sentry Test Button */}
-                <button
-                  onClick={() => {
-                    throw new Error("Dies ist ein Test-Fehler für Sentry!");
-                  }}
-                  className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white"
-                >
-                  Sentry Testen
-                </button>
               </motion.div>
 
               <motion.div 
