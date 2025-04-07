@@ -36,6 +36,7 @@ export const getSupabase = async () => {
               'Accept': 'application/json'
             }
           });
+
           if (!response.ok) {
             throw new Error(`Failed to load Supabase configuration: ${await response.text()}`);
           }
@@ -81,11 +82,8 @@ export const getSupabase = async () => {
           .eq('key', 'main_image')
           .single();
 
-        if (error) {
-          // If the error is due to no records found, that's okay
-          if (error.code !== 'PGRST116') {
-            throw error;
-          }
+        if (error && error.code !== 'PGRST116') {
+          throw error;
         }
 
         console.log('✅ Supabase connection successful');

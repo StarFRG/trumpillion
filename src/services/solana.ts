@@ -147,7 +147,8 @@ export class SolanaService {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get mint transaction');
+        const error = await response.json().catch(() => ({ error: 'Failed to get mint transaction' }));
+        throw new Error(error.error || 'Failed to get mint transaction');
       }
 
       const { transaction: serializedTx, mint } = await response.json();

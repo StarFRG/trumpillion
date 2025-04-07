@@ -15,7 +15,13 @@ const umi = createUmi(rpcUrl).use(irysUploader());
 
 export const handler: Handler = async (event) => {
   if (!event.body) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing request body' }) };
+    return { 
+      statusCode: 400, 
+      body: JSON.stringify({ error: 'Missing request body' }),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
   }
 
   try {
@@ -24,7 +30,10 @@ export const handler: Handler = async (event) => {
     if (!wallet || !name || !description || !imageUrl) {
       return { 
         statusCode: 400, 
-        body: JSON.stringify({ error: 'Missing required fields' }) 
+        body: JSON.stringify({ error: 'Missing required fields' }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
       };
     }
 
@@ -41,18 +50,34 @@ export const handler: Handler = async (event) => {
     if (existingPixel) {
       return { 
         statusCode: 400, 
-        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` }) 
+        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
       };
     }
 
     // Validate image
-    const imageResponse = await fetch(imageUrl);
+    const imageResponse = await fetch(imageUrl, {
+      headers: {
+        'Accept': 'image/*',
+        'User-Agent': 'Trumpillion/1.0'
+      }
+    });
+
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+    }
+
     const imageBuffer = await imageResponse.arrayBuffer();
 
     if (imageBuffer.byteLength > 10 * 1024 * 1024) {
       return { 
         statusCode: 400, 
-        body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' }) 
+        body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
       };
     }
 
@@ -100,7 +125,10 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({ 
         transaction: serializedTransaction,
         mint: mint.publicKey.toString()
-      }) 
+      }),
+      headers: {
+        'Content-Type': 'application/json'
+      }
     };
 
   } catch (error: any) {
@@ -110,7 +138,10 @@ export const handler: Handler = async (event) => {
       statusCode: 500, 
       body: JSON.stringify({ 
         error: error.message || 'Fehler beim NFT Minting' 
-      }) 
+      }),
+      headers: {
+        'Content-Type': 'application/json'
+      }
     };
   }
 };

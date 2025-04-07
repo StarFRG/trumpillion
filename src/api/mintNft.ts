@@ -10,15 +10,18 @@ export interface MintNftParams {
 export async function mintNftFromServer(data: MintNftParams): Promise<string> {
   const response = await fetch('/.netlify/functions/mint-nft', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
     body: JSON.stringify(data)
   });
 
-  const result = await response.json();
-  
   if (!response.ok) {
-    throw new Error(result.error || 'NFT Minting fehlgeschlagen');
+    const error = await response.json().catch(() => ({ error: 'NFT Minting fehlgeschlagen' }));
+    throw new Error(error.error || 'NFT Minting fehlgeschlagen');
   }
 
+  const result = await response.json();
   return result.mint;
 }

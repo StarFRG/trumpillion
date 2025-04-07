@@ -10,7 +10,12 @@ export const getRpcEndpoint = async (): Promise<string> => {
       return local;
     }
 
-    const response = await fetch('/.netlify/functions/get-config');
+    const response = await fetch('/.netlify/functions/get-config', {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`RPC-Endpoint konnte nicht geladen werden: ${text}`);

@@ -50,7 +50,17 @@ export class NFTService {
         })));
 
         // Bild validieren & laden
-        const imageResponse = await fetch(imageUrl);
+        const imageResponse = await fetch(imageUrl, {
+          headers: {
+            'Accept': 'image/*',
+            'User-Agent': 'Trumpillion/1.0'
+          }
+        });
+
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+        }
+
         const imageBuffer = await imageResponse.arrayBuffer();
 
         if (imageBuffer.byteLength > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
