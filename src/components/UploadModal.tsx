@@ -118,7 +118,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     }
 
     if (!uploadedFile || !selectedPixel) {
-      setError('Bitte wähle ein Bild aus und verbinde dein Wallet');
+      setError('Bitte wähle ein Bild aus');
       return;
     }
 
@@ -189,7 +189,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           y: selectedPixel.y,
           image_url: publicUrl,
           nft_url: `https://solscan.io/token/${nftAddress}?cluster=devnet`,
-          owner: wallet.publicKey.toString()
+          owner: wallet?.publicKey?.toString?.() ?? ''
         });
 
       if (dbError) throw dbError;
@@ -205,7 +205,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         context: { 
           action: 'upload_pixel',
           coordinates: selectedPixel,
-          wallet: wallet.publicKey.toString()
+          wallet: wallet?.publicKey?.toString?.() ?? ''
         }
       });
       setError(errorMessage);

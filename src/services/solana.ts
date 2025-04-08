@@ -129,7 +129,6 @@ export class SolanaService {
     }
 
     try {
-      // Get unsigned transaction from server
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
         headers: {
@@ -153,11 +152,9 @@ export class SolanaService {
 
       const { transaction: serializedTx, mint } = await response.json();
       
-      // Deserialize and sign transaction
       const connection = await this.getConnection();
       const transaction = Transaction.from(Buffer.from(serializedTx, 'base64'));
       
-      // Send and confirm transaction
       const signature = await wallet.sendTransaction(transaction, connection);
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
       

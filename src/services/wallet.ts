@@ -47,7 +47,7 @@ export class WalletValidationService {
         monitoring.logEvent('insufficient_balance', {
           required: requiredAmount,
           actual: balance,
-          wallet: wallet.publicKey.toString()
+          wallet: wallet?.publicKey?.toString?.() ?? ''
         });
       }
 
@@ -58,7 +58,7 @@ export class WalletValidationService {
         error: error instanceof Error ? error : new Error('Balance validation failed'),
         context: { 
           action: 'validate_balance',
-          wallet: wallet.publicKey.toString(),
+          wallet: wallet?.publicKey?.toString?.() ?? '',
           requiredAmount 
         }
       });
