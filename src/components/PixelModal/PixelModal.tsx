@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useWalletConnection } from '../../hooks/useWalletConnection';
-import { Upload, X, Share2, Twitter, Facebook } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { usePixelStore } from '../../store/pixelStore';
 import { getSupabase } from '../../lib/supabase';
 import { solanaService } from '../../services/solana';

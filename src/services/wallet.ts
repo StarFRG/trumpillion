@@ -36,8 +36,7 @@ export class WalletValidationService {
     }
 
     try {
-      // Verwende die zentrale Verbindung statt der Wallet-Adapter Verbindung
-      const connection = await solanaService['getConnection']();
+      const connection = await solanaService.getConnection();
       const balance = await connection.getBalance(wallet.publicKey);
       const hasEnoughBalance = balance >= requiredAmount;
 

@@ -61,10 +61,11 @@ export class SolanaService {
   }
 
   async processPayment(wallet: WalletContextState): Promise<string> {
-    const pubkey = wallet?.publicKey;
-    if (!pubkey) {
+    if (!wallet?.publicKey) {
       throw new Error('Wallet ist nicht verbunden');
     }
+
+    const pubkey = wallet.publicKey;
 
     return await this.retry(async () => {
       try {
@@ -125,10 +126,11 @@ export class SolanaService {
     x?: number,
     y?: number
   ): Promise<string> {
-    const pubkey = wallet?.publicKey;
-    if (!pubkey) {
+    if (!wallet?.publicKey) {
       throw new Error('Wallet ist nicht verbunden');
     }
+
+    const pubkey = wallet.publicKey;
 
     try {
       const response = await fetch('/.netlify/functions/mint-nft', {

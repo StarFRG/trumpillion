@@ -192,18 +192,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setUploadSuccess(true);
       await new Promise(resolve => setTimeout(resolve, 2000));
       onClose();
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Upload fehlgeschlagen';
-      console.error('Upload failed:', err);
+    } catch (error) {
+      console.error('Upload failed:', error);
       monitoring.logError({
-        error: err instanceof Error ? err : new Error(errorMessage),
+        error: error instanceof Error ? error : new Error('Upload failed'),
         context: { 
           action: 'upload_pixel',
           coordinates: selectedPixel,
           wallet: wallet?.publicKey?.toString?.() ?? ''
         }
       });
-      setError(errorMessage);
+      setError(error instanceof Error ? error.message : 'Upload failed');
       
       if (uploadedImageUrl) {
         const fileName = uploadedImageUrl.split('/').pop();
