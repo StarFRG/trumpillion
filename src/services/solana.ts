@@ -61,19 +61,15 @@ export class SolanaService {
   }
 
   async processPayment(wallet: WalletContextState): Promise<string> {
-    if (!wallet?.publicKey) {
+    const pubkey = wallet?.publicKey;
+    if (!pubkey) {
       throw new Error('Wallet ist nicht verbunden');
     }
 
     return await this.retry(async () => {
       try {
         const connection = await this.getConnection();
-
-        if (!wallet?.publicKey) {
-          throw new Error('Wallet ist nicht verbunden');
-        }
-
-        const balance = await connection.getBalance(wallet.publicKey);
+        const balance = await connection.getBalance(pubkey);
         
         if (balance < PIXEL_PRICE + 5000) { // 5000 lamports for transaction fee
           throw new Error('Unzureichendes Guthaben. Du brauchst mindestens 1 SOL um ein Pixel zu kaufen.');
@@ -81,16 +77,12 @@ export class SolanaService {
 
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
 
-        if (!wallet?.publicKey) {
-          throw new Error('Wallet ist nicht verbunden');
-        }
-
         const transaction = new Transaction({
-          feePayer: wallet.publicKey,
+          feePayer: pubkey,
           recentBlockhash: blockhash
         }).add(
           SystemProgram.transfer({
-            fromPubkey: wallet.publicKey,
+            fromPubkey: pubkey,
             toPubkey: PROJECT_WALLET,
             lamports: PIXEL_PRICE
           })
@@ -133,7 +125,8 @@ export class SolanaService {
     x?: number,
     y?: number
   ): Promise<string> {
-    if (!wallet?.publicKey) {
+    const pubkey = wallet?.publicKey;
+    if (!pubkey) {
       throw new Error('Wallet ist nicht verbunden');
     }
 
@@ -145,7 +138,7 @@ export class SolanaService {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          wallet: wallet?.publicKey?.toString?.() ?? '',
+          wallet: pubkey.toString(),
           name,
           description,
           imageUrl,
@@ -184,7 +177,7 @@ export class SolanaService {
         error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
         context: { 
           action: 'mint_nft',
-          wallet: wallet?.publicKey?.toString?.() ?? '',
+          wallet: pubkey.toString(),
           name,
           x,
           y
