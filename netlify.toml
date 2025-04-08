@@ -9,7 +9,21 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://*.sentry.io 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.sentry.io https://*.supabase.co wss://*.supabase.co https://api.mainnet-beta.solana.com https://images.unsplash.com https://*.solana-mainnet.quiknode.pro wss://*.solana-mainnet.quiknode.pro; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src blob:; upgrade-insecure-requests;"
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
+      img-src 'self' https: data: blob:;
+      font-src 'self' https://fonts.gstatic.com;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mainnet-beta.solana.com https://*.solana-mainnet.quiknode.pro wss://*.solana-mainnet.quiknode.pro https://o4509111588225024.ingest.de.sentry.io;
+      worker-src 'self' blob:;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      frame-ancestors 'none';
+      upgrade-insecure-requests;
+    """
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"

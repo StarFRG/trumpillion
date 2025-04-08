@@ -16,6 +16,10 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
     reconnectAttempts 
   } = useWalletConnection();
 
+  if (!wallet) {
+    return null;
+  }
+
   if (minimal && wallet.connected) {
     return (
       <div className="wallet-button-container">
@@ -39,7 +43,7 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
             {connectionError}
             {isReconnecting && (
               <div className="text-xs mt-1">
-                Reconnecting... Attempt {reconnectAttempts}/{3}
+                Reconnecting... Attempt {reconnectAttempts}/{RECONNECT_ATTEMPTS}
               </div>
             )}
           </div>

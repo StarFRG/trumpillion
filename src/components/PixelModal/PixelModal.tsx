@@ -37,7 +37,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
   const [selectedCoordinates, setSelectedCoordinates] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (!isOpen || !wallet.connected) return;
+    if (!isOpen || !wallet?.connected) return;
 
     setLoading(true);
     setError(null);
@@ -85,7 +85,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     };
 
     initializePixel();
-  }, [isOpen, wallet.connected, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
+  }, [isOpen, wallet?.connected, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
 
   const handleFileSelect = useCallback((file: File) => {
     try {
@@ -186,7 +186,12 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
   }, [uploadedImageUrl, previewUrl, onClose]);
 
   const handleMint = useCallback(async () => {
-    if (!uploadedFile || !selectedCoordinates || !wallet.connected || !wallet.publicKey) {
+    if (!wallet?.connected || !wallet?.publicKey) {
+      setError(t('wallet.error.notConnected'));
+      return;
+    }
+
+    if (!uploadedFile || !selectedCoordinates) {
       setError(t('pixel.upload.error.noFile'));
       return;
     }
@@ -266,7 +271,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           y: selectedCoordinates.y,
           image_url: publicUrl,
           nft_url: nftUrl,
-          owner: wallet.publicKey?.toString()
+          owner: wallet.publicKey.toString()
         });
 
       if (dbError) throw dbError;
@@ -280,7 +285,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
         context: { 
           action: 'mint_nft',
           coordinates: selectedCoordinates,
-          wallet: wallet.publicKey?.toString()
+          wallet: wallet.publicKey.toString()
         }
       });
       setError(

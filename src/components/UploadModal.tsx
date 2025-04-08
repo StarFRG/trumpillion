@@ -112,7 +112,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleUpload = useCallback(async () => {
-    if (!uploadedFile || !selectedPixel || !wallet.connected || !wallet.publicKey) {
+    if (!wallet?.publicKey) {
+      setError('Bitte verbinde dein Wallet');
+      return;
+    }
+
+    if (!uploadedFile || !selectedPixel) {
       setError('Bitte wähle ein Bild aus und verbinde dein Wallet');
       return;
     }
@@ -234,7 +239,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           </button>
         </div>
 
-        {!wallet.connected ? (
+        {!wallet?.connected ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">Verbinde dein Wallet um fortzufahren</p>
             <WalletButton />

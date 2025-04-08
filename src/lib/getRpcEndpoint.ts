@@ -12,7 +12,8 @@ export const getRpcEndpoint = async (): Promise<string> => {
 
     const response = await fetch('/.netlify/functions/get-config', {
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     });
 

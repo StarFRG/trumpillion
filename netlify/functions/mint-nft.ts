@@ -1,17 +1,19 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
+import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey, none } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { supabase } from './supabase-client';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
-if (!rpcUrl) {
-  throw new Error('Missing Solana RPC URL');
+if (!rpcUrl?.startsWith('http')) {
+  throw new Error('Missing or invalid Solana RPC URL');
 }
 
 const umi = createUmi(rpcUrl).use(irysUploader());
+// Explicitly set null signer to indicate client-side signing
+umi.use(signerIdentity(none()));
 
 export const handler: Handler = async (event) => {
   if (!event.body) {
@@ -19,7 +21,8 @@ export const handler: Handler = async (event) => {
       statusCode: 400, 
       body: JSON.stringify({ error: 'Missing request body' }),
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       }
     };
   }
@@ -32,17 +35,23 @@ export const handler: Handler = async (event) => {
         statusCode: 400, 
         body: JSON.stringify({ error: 'Missing required fields' }),
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       };
     }
 
     const walletPublicKey = publicKey(wallet);
 
-    // Verify pixel availability
+    // Verify pixel availability with proper headers
     const { data: existingPixel } = await supabase
       .from('pixels')
-      .select('x, y')
+      .select('x, y', { 
+        headers: { 
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      })
       .eq('x', x)
       .eq('y', y)
       .maybeSingle();
@@ -52,12 +61,13 @@ export const handler: Handler = async (event) => {
         statusCode: 400, 
         body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` }),
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       };
     }
 
-    // Validate image
+    // Validate image with proper headers
     const imageResponse = await fetch(imageUrl, {
       headers: {
         'Accept': 'image/*',
@@ -76,7 +86,8 @@ export const handler: Handler = async (event) => {
         statusCode: 400, 
         body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' }),
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       };
     }
@@ -127,7 +138,8 @@ export const handler: Handler = async (event) => {
         mint: mint.publicKey.toString()
       }),
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       }
     };
 
@@ -140,7 +152,8 @@ export const handler: Handler = async (event) => {
         error: error.message || 'Fehler beim NFT Minting' 
       }),
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       }
     };
   }
