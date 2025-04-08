@@ -50,14 +50,14 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         context: { 
           action: 'upload_pixel_image',
           coordinates,
-          wallet: wallet.publicKey?.toString()
+          wallet: wallet?.publicKey?.toString?.() ?? ''
         }
       });
       onError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onSuccess, onError, wallet.publicKey]);
+  }, [coordinates, onSuccess, onError, wallet?.publicKey]);
 
   return (
     <div className="space-y-4">

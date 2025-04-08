@@ -9,8 +9,6 @@ import { monitoring } from '../../services/monitoring';
 import { validateFile } from '../../utils/validation';
 import { ShareModal } from '../ShareModal';
 
-const STORAGE_BUCKET = 'pixel-images';
-
 interface PixelModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -45,7 +43,6 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     const initializePixel = async () => {
       try {
         if (pixel) {
-          // Verify pixel is not already taken
           const supabase = await getSupabase();
           const { data: existingPixel } = await supabase
             .from('pixels')
@@ -74,11 +71,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
           context: { action: 'initialize_pixel' }
         });
-        setError(
-          error instanceof Error 
-            ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
-            : t('pixel.error.noFreePixel')
-        );
+        setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
       } finally {
         setLoading(false);
       }
@@ -101,11 +94,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       setError(null);
       return true;
     } catch (error) {
-      setError(
-        error instanceof Error 
-          ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
-          : t('pixel.upload.error.format')
-      );
+      setError(error instanceof Error ? error.message : t('pixel.upload.error.format'));
       return false;
     }
   }, [previewUrl, t]);
@@ -138,37 +127,12 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     }
   }, [handleFileSelect]);
 
-  const handleShare = useCallback((platform: 'twitter' | 'facebook' | 'copy') => {
-    const shareUrl = nftUrl || window.location.href;
-    const shareText = `Check out my Trump Moment "${title}" on Trumpillion! ${description}`;
-
-    switch (platform) {
-      case 'twitter':
-        window.open(
-          `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
-          '_blank'
-        );
-        break;
-      case 'facebook':
-        window.open(
-          `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
-          '_blank'
-        );
-        break;
-      case 'copy':
-        navigator.clipboard.writeText(shareUrl).then(() => {
-          alert('Link copied to clipboard!');
-        });
-        break;
-    }
-  }, [nftUrl, title, description]);
-
   const handleCancel = useCallback(async () => {
     if (uploadedImageUrl) {
       const fileName = uploadedImageUrl.split('/').pop();
       if (fileName) {
         const supabase = await getSupabase();
-        await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
+        await supabase.storage.from('pixel-images').remove([fileName]);
       }
     }
     if (previewUrl) {
@@ -205,33 +169,30 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     setError(null);
 
     try {
-      // Process payment first
       const txId = await solanaService.processPayment(wallet);
       if (!txId) {
         throw new Error('Payment failed');
       }
 
-      // Upload image
       const fileExt = uploadedFile.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
       
       const supabase = await getSupabase();
       
-      // Check if file already exists
       const { data: existingFile } = await supabase.storage
-        .from(STORAGE_BUCKET)
+        .from('pixel-images')
         .list('', { 
           search: fileName 
         });
 
       if (existingFile?.length) {
         await supabase.storage
-          .from(STORAGE_BUCKET)
+          .from('pixel-images')
           .remove([fileName]);
       }
 
       const { data: storageData, error: storageError } = await supabase.storage
-        .from(STORAGE_BUCKET)
+        .from('pixel-images')
         .upload(fileName, uploadedFile, {
           cacheControl: '3600',
           upsert: true
@@ -240,7 +201,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       if (storageError) throw storageError;
 
       const publicData = supabase.storage
-        .from(STORAGE_BUCKET)
+        .from('pixel-images')
         .getPublicUrl(fileName);
 
       if (!publicData?.data?.publicUrl) {
@@ -250,7 +211,6 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       const publicUrl = publicData.data.publicUrl;
       setUploadedImageUrl(publicUrl);
 
-      // Mint NFT
       const nftAddress = await solanaService.mintNFT(
         wallet,
         title,
@@ -263,7 +223,6 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       const nftUrl = `https://solscan.io/token/${nftAddress}?cluster=devnet`;
       setNftUrl(nftUrl);
 
-      // Update database
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -271,7 +230,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           y: selectedCoordinates.y,
           image_url: publicUrl,
           nft_url: nftUrl,
-          owner: wallet.publicKey.toString()
+          owner: wallet?.publicKey?.toString?.() ?? ''
         });
 
       if (dbError) throw dbError;
@@ -285,21 +244,16 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
         context: { 
           action: 'mint_nft',
           coordinates: selectedCoordinates,
-          wallet: wallet.publicKey.toString()
+          wallet: wallet?.publicKey?.toString?.() ?? ''
         }
       });
-      setError(
-        error instanceof Error 
-          ? (typeof error.message === 'string' ? error.message : JSON.stringify(error.message))
-          : t('common.error')
-      );
+      setError(error instanceof Error ? error.message : t('common.error'));
       
-      // Cleanup on failure
       if (uploadedImageUrl) {
         const fileName = uploadedImageUrl.split('/').pop();
         if (fileName) {
           const supabase = await getSupabase();
-          await supabase.storage.from(STORAGE_BUCKET).remove([fileName]);
+          await supabase.storage.from('pixel-images').remove([fileName]);
         }
         setUploadedImageUrl(null);
       }

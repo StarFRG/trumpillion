@@ -96,7 +96,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (fileName) {
         try {
           const supabase = await getSupabase();
-          await supabase.storage.from("pixel-images").remove([fileName]);
+          await supabase.storage.from('pixel-images').remove([fileName]);
         } catch (error) {
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
@@ -112,7 +112,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleUpload = useCallback(async () => {
-    if (!wallet?.publicKey) {
+    if (!wallet?.connected || !wallet?.publicKey) {
       setError('Bitte verbinde dein Wallet');
       return;
     }
@@ -128,27 +128,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     try {
       const supabase = await getSupabase();
       
-      // Check if pixel is already owned
       const { data: existingPixel, error: fetchError } = await supabase
-        .from("pixels")
-        .select("x, y")
-        .eq("x", selectedPixel.x)
-        .eq("y", selectedPixel.y)
+        .from('pixels')
+        .select('x, y')
+        .eq('x', selectedPixel.x)
+        .eq('y', selectedPixel.y)
         .single();
 
-      if (fetchError && fetchError.code !== "PGRST116") {
-        throw new Error("Fehler beim Prüfen des Pixels");
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        throw new Error('Fehler beim Prüfen des Pixels');
       }
 
       if (existingPixel) {
-        setError("Dieses Pixel ist bereits vergeben. Bitte wähle ein anderes.");
+        setError('Dieses Pixel ist bereits vergeben. Bitte wähle ein anderes.');
         return;
       }
 
-      // Process payment first
       const paymentTxId = await solanaService.processPayment(wallet);
 
-      // Upload image to Supabase
       const fileExt = uploadedFile.name.split('.').pop();
       const fileName = `pixel_${selectedPixel.x}_${selectedPixel.y}.${fileExt}`;
       const { data: storageData, error: storageError } = await supabase.storage
@@ -171,7 +168,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const publicUrl = publicData.data.publicUrl;
       setUploadedImageUrl(publicUrl);
 
-      // Mint NFT
       const nftAddress = await solanaService.mintNFT(
         wallet,
         `Trumpillion Pixel (${selectedPixel.x}, ${selectedPixel.y})`,
@@ -181,7 +177,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         selectedPixel.y
       );
 
-      // Update pixel in database
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -214,7 +209,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         const fileName = uploadedImageUrl.split('/').pop();
         if (fileName) {
           const supabase = await getSupabase();
-          await supabase.storage.from("pixel-images").remove([fileName]);
+          await supabase.storage.from('pixel-images').remove([fileName]);
         }
         setUploadedImageUrl(null);
       }

@@ -2,6 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import { z } from 'zod';
 import { monitoring } from './monitoring';
+import { solanaService } from './solana';
 
 const WalletValidationSchema = z.object({
   publicKey: z.instanceof(PublicKey),
@@ -31,15 +32,12 @@ export class WalletValidationService {
 
   static async validateBalance(wallet: WalletContextState, requiredAmount: number): Promise<boolean> {
     if (!wallet?.publicKey) {
-      throw new Error('Wallet nicht verbunden');
+      throw new Error('Wallet ist nicht verbunden');
     }
 
     try {
-      const connection = wallet.wallet?.adapter?.connection;
-      if (!connection) {
-        throw new Error('Keine Wallet-Verbindung verfügbar');
-      }
-
+      // Verwende die zentrale Verbindung statt der Wallet-Adapter Verbindung
+      const connection = await solanaService['getConnection']();
       const balance = await connection.getBalance(wallet.publicKey);
       const hasEnoughBalance = balance >= requiredAmount;
 

@@ -62,12 +62,17 @@ export class SolanaService {
 
   async processPayment(wallet: WalletContextState): Promise<string> {
     if (!wallet?.publicKey) {
-      throw new Error('Wallet nicht verbunden');
+      throw new Error('Wallet ist nicht verbunden');
     }
 
     return await this.retry(async () => {
       try {
         const connection = await this.getConnection();
+
+        if (!wallet?.publicKey) {
+          throw new Error('Wallet ist nicht verbunden');
+        }
+
         const balance = await connection.getBalance(wallet.publicKey);
         
         if (balance < PIXEL_PRICE + 5000) { // 5000 lamports for transaction fee
@@ -75,6 +80,10 @@ export class SolanaService {
         }
 
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+
+        if (!wallet?.publicKey) {
+          throw new Error('Wallet ist nicht verbunden');
+        }
 
         const transaction = new Transaction({
           feePayer: wallet.publicKey,
@@ -125,7 +134,7 @@ export class SolanaService {
     y?: number
   ): Promise<string> {
     if (!wallet?.publicKey) {
-      throw new Error('Wallet nicht verbunden');
+      throw new Error('Wallet ist nicht verbunden');
     }
 
     try {
@@ -136,7 +145,7 @@ export class SolanaService {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          wallet: wallet.publicKey.toString(),
+          wallet: wallet?.publicKey?.toString?.() ?? '',
           name,
           description,
           imageUrl,
@@ -175,7 +184,7 @@ export class SolanaService {
         error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
         context: { 
           action: 'mint_nft',
-          wallet: wallet.publicKey.toString(),
+          wallet: wallet?.publicKey?.toString?.() ?? '',
           name,
           x,
           y
