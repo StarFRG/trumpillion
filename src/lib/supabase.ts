@@ -31,7 +31,7 @@ export const getSupabase = async () => {
             throw new Error('Missing Supabase Anon Key');
           }
         } else {
-          const response = await fetch('/.netlify/functions/get-supabase-config', {
+          const response = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/.netlify/functions/get-supabase-config`, {
             headers: {
               'Accept': 'application/json'
             }
@@ -84,6 +84,10 @@ export const getSupabase = async () => {
 
         if (error && error.code !== 'PGRST116') {
           throw error;
+        }
+
+        if (!data && !error) {
+          console.warn('Warnung: Keine settings/main_image Daten gefunden');
         }
 
         console.log('✅ Supabase connection successful');

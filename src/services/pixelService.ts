@@ -1,6 +1,6 @@
 import { getSupabase } from '../lib/supabase';
 import { PixelData } from '../types';
-import { monitoring } from './monitoring';
+import { monitoring } from '../services/monitoring';
 
 export class PixelService {
   async getPixel(x: number, y: number): Promise<PixelData | null> {
@@ -14,6 +14,10 @@ export class PixelService {
         .single();
 
       if (error) throw error;
+      if (!data) {
+        throw new Error('Pixel nicht gefunden');
+      }
+      
       return data;
     } catch (error) {
       monitoring.logError({
@@ -24,8 +28,12 @@ export class PixelService {
     }
   }
 
-  async updatePixel(pixel: PixelData): Promise<void> {
+  async updatePixel(pixel: PixelData): Promise<boolean> {
     try {
+      if (!pixel.x || !pixel.y || !pixel.imageUrl || !pixel.owner || !pixel.nftUrl) {
+        throw new Error('Ungültige Pixel-Daten');
+      }
+
       const supabase = await getSupabase();
       const { error } = await supabase
         .from('pixels')
@@ -38,6 +46,7 @@ export class PixelService {
         });
 
       if (error) throw error;
+      return true;
     } catch (error) {
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Failed to update pixel'),
@@ -47,7 +56,7 @@ export class PixelService {
     }
   }
 
-  async deletePixel(x: number, y: number): Promise<void> {
+  async deletePixel(x: number, y: number): Promise<boolean> {
     try {
       const supabase = await getSupabase();
       const { error } = await supabase
@@ -57,6 +66,7 @@ export class PixelService {
         .eq('y', y);
 
       if (error) throw error;
+      return true;
     } catch (error) {
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Failed to delete pixel'),

@@ -1,12 +1,12 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
 import { GRID_WIDTH, GRID_HEIGHT, PIXEL_SIZE } from '../types';
 import { usePixelStore } from '../store/pixelStore';
 import { debounce } from 'lodash';
 import { monitoring } from '../services/monitoring';
 
 export const useVirtualGrid = () => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const { pixels, loadPixels } = usePixelStore();
   const [isLoading, setIsLoading] = useState(false);
@@ -56,8 +56,8 @@ export const useVirtualGrid = () => {
     scrollPaddingEnd: 0,
   });
 
-  // Load visible pixels with error handling and loading state
-  const loadVisiblePixels = useCallback(
+  // Debounced load pixels function
+  const debouncedLoadPixels = useMemo(() => 
     debounce(async () => {
       try {
         setError(null);
@@ -66,14 +66,14 @@ export const useVirtualGrid = () => {
         const visibleRows = rowVirtualizer.getVirtualItems();
         const visibleCols = columnVirtualizer.getVirtualItems();
         
-        if (visibleRows.length && visibleCols.length) {
-          const startRow = Math.max(0, visibleRows[0].index - 5);
-          const endRow = Math.min(GRID_HEIGHT - 1, visibleRows[visibleRows.length - 1].index + 5);
-          const startCol = Math.max(0, visibleCols[0].index - 5);
-          const endCol = Math.min(GRID_WIDTH - 1, visibleCols[visibleCols.length - 1].index + 5);
+        if (!visibleRows.length || !visibleCols.length) return;
 
-          await loadPixels(startRow, startCol, endRow, endCol);
-        }
+        const startRow = Math.max(0, visibleRows[0].index - 5);
+        const endRow = Math.min(GRID_HEIGHT - 1, visibleRows[visibleRows.length - 1].index + 5);
+        const startCol = Math.max(0, visibleCols[0].index - 5);
+        const endCol = Math.min(GRID_WIDTH - 1, visibleCols[visibleCols.length - 1].index + 5);
+
+        await loadPixels(startRow, startCol, endRow, endCol);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to load pixels';
         setError(errorMessage);
@@ -89,7 +89,7 @@ export const useVirtualGrid = () => {
   );
 
   // Scroll to specific coordinates
-  const scrollToCoordinates = useCallback((x: number, y: number) => {
+  const scrollToCoordinates = useMemo(() => (x: number, y: number) => {
     if (!containerRef.current) return;
 
     const rowIndex = Math.floor(y);
@@ -100,9 +100,18 @@ export const useVirtualGrid = () => {
   }, [rowVirtualizer, columnVirtualizer]);
 
   // Get visible range
-  const getVisibleRange = useCallback(() => {
+  const getVisibleRange = useMemo(() => () => {
     const visibleRows = rowVirtualizer.getVirtualItems();
     const visibleCols = columnVirtualizer.getVirtualItems();
+
+    if (!visibleRows.length || !visibleCols.length) {
+      return {
+        startRow: 0,
+        endRow: 0,
+        startCol: 0,
+        endCol: 0,
+      };
+    }
 
     return {
       startRow: visibleRows[0]?.index ?? 0,
@@ -114,9 +123,17 @@ export const useVirtualGrid = () => {
 
   // Load pixels when scroll position changes
   useEffect(() => {
-    loadVisiblePixels();
-    return () => loadVisiblePixels.cancel();
-  }, [loadVisiblePixels]);
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', debouncedLoadPixels);
+    debouncedLoadPixels();
+
+    return () => {
+      container.removeEventListener('scroll', debouncedLoadPixels);
+      debouncedLoadPixels.cancel();
+    };
+  }, [debouncedLoadPixels]);
 
   // Cleanup
   useEffect(() => {

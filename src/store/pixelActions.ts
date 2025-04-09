@@ -26,9 +26,9 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
     loading: false,
     error: null,
 
-    cleanup: () => {
+    cleanup: async () => {
       if (realtimeSubscription) {
-        realtimeSubscription.unsubscribe();
+        await realtimeSubscription.unsubscribe();
       }
     },
 
@@ -51,8 +51,9 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
             const { x, y } = newPixel;
 
             if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-              pixels[y][x] = newPixel;
-              set({ pixels: [...pixels] });
+              const updatedPixels = pixels.map(row => [...row]);
+              updatedPixels[y][x] = newPixel;
+              set({ pixels: updatedPixels });
             }
           }
         )
@@ -83,8 +84,9 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
         if (error) throw error;
 
         const pixels = get().pixels;
-        pixels[pixel.y][pixel.x] = pixel;
-        set({ pixels: [...pixels] });
+        const updatedPixels = pixels.map(row => [...row]);
+        updatedPixels[pixel.y][pixel.x] = pixel;
+        set({ pixels: updatedPixels });
       } catch (error) {
         console.error('Error updating pixel:', error);
         monitoring.logError({
@@ -111,22 +113,23 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
         if (error) throw error;
 
         const pixels = get().pixels;
+        const updatedPixels = pixels.map(row => [...row]);
         
         // Reset pixels in range
         for (let y = startRow; y <= endRow; y++) {
           for (let x = startCol; x <= endCol; x++) {
-            pixels[y][x] = null;
+            updatedPixels[y][x] = null;
           }
         }
 
         // Update with received pixels
         data.forEach((pixel: PixelData) => {
           if (pixel.x >= 0 && pixel.x < GRID_SIZE && pixel.y >= 0 && pixel.y < GRID_SIZE) {
-            pixels[pixel.y][pixel.x] = pixel;
+            updatedPixels[pixel.y][pixel.x] = pixel;
           }
         });
 
-        set({ pixels: [...pixels], loading: false });
+        set({ pixels: updatedPixels, loading: false });
       } catch (error) {
         console.error('Error loading pixels:', error);
         monitoring.logError({

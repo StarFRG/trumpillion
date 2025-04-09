@@ -37,17 +37,22 @@ if (typeof window !== 'undefined') {
   window.process = process;
 }
 
-// Register Service Worker
-if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
+// Register Service Worker – nur in sicherem Kontext
+if (
+  typeof navigator !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  import.meta.env.PROD &&
+  (window.location.protocol === 'https:' || window.location.hostname === 'localhost')
+) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { 
-      scope: '/' 
+    navigator.serviceWorker.register('/sw.js', {
+      scope: '/'
     }).then(registration => {
       if (import.meta.env.DEV) {
-        console.log('SW registered:', registration);
+        console.log('✅ Service Worker registered:', registration);
       }
     }).catch(error => {
-      console.error('SW registration failed:', error);
+      console.error('❌ SW registration failed:', error);
       Sentry.captureException(error);
     });
   });

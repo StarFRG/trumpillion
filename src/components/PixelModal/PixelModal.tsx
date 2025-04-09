@@ -237,6 +237,12 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
 
       setUploadSuccess(true);
       setShowShareDialog(true);
+      if (!showShareDialog) {
+  setUploadedFile(null);
+  setPreviewUrl(null);
+  setTitle('');
+  setDescription('');
+}
     } catch (error) {
       console.error('Error:', error);
       monitoring.logError({

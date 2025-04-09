@@ -16,14 +16,14 @@ export class WalletValidationService {
   static validateWallet(wallet: WalletContextState): boolean {
     try {
       if (!wallet) {
-        throw new Error('Wallet instance is missing');
+        throw new Error('Wallet-Instanz fehlt');
       }
       WalletValidationSchema.parse(wallet);
       return true;
     } catch (error) {
-      console.error('Wallet validation failed:', error);
+      console.error('Wallet-Validierung fehlgeschlagen:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Wallet validation failed'),
+        error: error instanceof Error ? error : new Error('Wallet-Validierung fehlgeschlagen'),
         context: { action: 'validate_wallet' }
       });
       return false;
@@ -31,31 +31,32 @@ export class WalletValidationService {
   }
 
   static async validateBalance(wallet: WalletContextState, requiredAmount: number): Promise<boolean> {
-    if (!wallet?.publicKey) {
+    const pubkey = wallet?.publicKey;
+    if (!pubkey) {
       throw new Error('Wallet ist nicht verbunden');
     }
 
     try {
       const connection = await solanaService.getConnection();
-      const balance = await connection.getBalance(wallet.publicKey);
+      const balance = await connection.getBalance(pubkey);
       const hasEnoughBalance = balance >= requiredAmount;
 
       if (!hasEnoughBalance) {
         monitoring.logEvent('insufficient_balance', {
           required: requiredAmount,
           actual: balance,
-          wallet: wallet?.publicKey?.toString?.() ?? ''
+          wallet: pubkey.toString()
         });
       }
 
       return hasEnoughBalance;
     } catch (error) {
-      console.error('Balance validation failed:', error);
+      console.error('Guthaben-Validierung fehlgeschlagen:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Balance validation failed'),
+        error: error instanceof Error ? error : new Error('Guthaben-Validierung fehlgeschlagen'),
         context: { 
           action: 'validate_balance',
-          wallet: wallet?.publicKey?.toString?.() ?? '',
+          wallet: pubkey.toString(),
           requiredAmount 
         }
       });
@@ -79,9 +80,9 @@ export class WalletValidationService {
 
       return new PublicKey(walletAddress).equals(new PublicKey(ownerAddress));
     } catch (error) {
-      console.error('Ownership validation failed:', error);
+      console.error('Eigentums-Validierung fehlgeschlagen:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Ownership validation failed'),
+        error: error instanceof Error ? error : new Error('Eigentums-Validierung fehlgeschlagen'),
         context: { 
           action: 'validate_ownership',
           walletAddress,
@@ -98,16 +99,15 @@ export class WalletValidationService {
         throw new Error('Keine Transaktion angegeben');
       }
 
-      // Basic format validation for base64 encoded transaction
       if (!transaction.match(/^[A-Za-z0-9+/=]+$/)) {
         throw new Error('Ungültiges Transaktionsformat');
       }
 
       return true;
     } catch (error) {
-      console.error('Transaction validation failed:', error);
+      console.error('Transaktions-Validierung fehlgeschlagen:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Transaction validation failed'),
+        error: error instanceof Error ? error : new Error('Transaktions-Validierung fehlgeschlagen'),
         context: { action: 'validate_transaction' }
       });
       return false;

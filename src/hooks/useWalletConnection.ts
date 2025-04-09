@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { monitoring } from '../services/monitoring';
 
-const RECONNECT_ATTEMPTS = 3;
+export const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000;
 const WALLET_STORAGE_KEY = 'walletType';
 
@@ -13,7 +13,6 @@ export const useWalletConnection = () => {
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [isReconnecting, setIsReconnecting] = useState(false);
 
-  // Load cached wallet status
   useEffect(() => {
     const cachedWalletType = localStorage.getItem(WALLET_STORAGE_KEY);
     if (cachedWalletType && !wallet?.connected) {
@@ -21,7 +20,6 @@ export const useWalletConnection = () => {
     }
   }, []);
 
-  // Save wallet type when connected
   useEffect(() => {
     if (wallet?.connected && wallet?.wallet?.adapter?.name) {
       localStorage.setItem(WALLET_STORAGE_KEY, wallet.wallet.adapter.name);
@@ -47,7 +45,7 @@ export const useWalletConnection = () => {
       setReconnectAttempts(0);
       setIsReconnecting(false);
     } catch (error) {
-      console.error('Wallet connection error:', error);
+      console.error('Wallet Verbindungsfehler:', error);
       const errorMessage = error instanceof Error ? error.message : 'Verbindung fehlgeschlagen';
       setConnectionError(errorMessage);
 
@@ -60,7 +58,6 @@ export const useWalletConnection = () => {
         }
       });
 
-      // Attempt reconnection
       if (reconnectAttempts < RECONNECT_ATTEMPTS) {
         setIsReconnecting(true);
         setTimeout(() => {
@@ -87,9 +84,9 @@ export const useWalletConnection = () => {
       setIsReconnecting(false);
       setConnectionError(null);
     } catch (error) {
-      console.error('Wallet disconnect error:', error);
+      console.error('Wallet Trennungsfehler:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Disconnect failed'),
+        error: error instanceof Error ? error : new Error('Trennung fehlgeschlagen'),
         context: { action: 'disconnect_wallet' }
       });
     }

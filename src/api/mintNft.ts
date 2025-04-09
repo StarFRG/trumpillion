@@ -17,11 +17,20 @@ export async function mintNftFromServer(data: MintNftParams): Promise<string> {
     body: JSON.stringify(data)
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'NFT Minting fehlgeschlagen' }));
-    throw new Error(error.error || 'NFT Minting fehlgeschlagen');
+  let result: any = {};
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('Ungültige Antwort vom Server');
   }
 
-  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result?.error || 'NFT Minting fehlgeschlagen');
+  }
+
+  if (!result.mint || typeof result.mint !== 'string') {
+    throw new Error('Mint-Adresse fehlt in Serverantwort');
+  }
+
   return result.mint;
 }

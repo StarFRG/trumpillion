@@ -2,6 +2,8 @@ import { FC, memo } from 'react';
 import { useWalletConnection } from '../hooks/useWalletConnection';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { Wallet, Loader2 } from 'lucide-react';
+import clsx from 'clsx';
+import { RECONNECT_ATTEMPTS } from '../hooks/useWalletConnection';
 
 interface WalletButtonProps {
   minimal?: boolean;
@@ -23,8 +25,10 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
   if (minimal && wallet.connected) {
     return (
       <div className="wallet-button-container">
-        <div className="flex items-center gap-1 text-gray-300 hover:text-white transition-colors">
-          <span className="text-sm">Connected</span>
+        <div className="flex items-center gap-1 text-green-400 text-sm">
+          <Wallet size={16} className="text-green-400" />
+          {wallet.publicKey?.toBase58().slice(0, 4)}...
+          {wallet.publicKey?.toBase58().slice(-4)}
         </div>
       </div>
     );
@@ -37,7 +41,7 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
         {isConnecting && (
           <Loader2 className="animate-spin text-gray-300" size={16} />
         )}
-        <WalletMultiButton className={`wallet-button ${wallet.connected ? 'connected' : ''}`} />
+        <WalletMultiButton className={clsx('wallet-button', { connected: wallet.connected })} />
         {connectionError && (
           <div className="absolute top-full left-0 right-0 mt-2 p-2 bg-red-500/10 border border-red-500 rounded text-sm text-red-500">
             {connectionError}

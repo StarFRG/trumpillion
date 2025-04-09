@@ -7,7 +7,7 @@ export const usePixelUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
+  const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }): Promise<string> => {
     try {
       validateFile(file);
       setUploading(true);
@@ -28,6 +28,10 @@ export const usePixelUpload = () => {
       }
 
       const fileExt = file.name.split('.').pop();
+      if (!fileExt) {
+        throw new Error('Dateiendung konnte nicht ermittelt werden');
+      }
+
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
       const { data: storageData, error: storageError } = await supabase.storage
@@ -39,22 +43,19 @@ export const usePixelUpload = () => {
 
       if (storageError) throw storageError;
 
-      const { data } = supabase.storage
+      const { data: publicData } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (!data) {
-        throw new Error('Keine Daten von getPublicUrl erhalten');
+      if (!publicData?.publicUrl) {
+        throw new Error('Öffentliche URL konnte nicht generiert werden');
       }
 
-      const publicUrl = data.publicUrl;
-      if (!publicUrl || !publicUrl.startsWith('http')) {
-        throw new Error('Ungültige oder fehlende Public URL');
-      }
+      const publicUrl = publicData.publicUrl;
 
       const { error: dbError } = await supabase
         .from('pixels')
-        .insert({
+        .upsert({
           x: coordinates.x,
           y: coordinates.y,
           image_url: publicUrl

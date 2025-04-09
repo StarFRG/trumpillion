@@ -31,9 +31,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     loading: false,
     error: null,
 
-    cleanup: () => {
+    cleanup: async () => {
       if (realtimeSubscription) {
-        realtimeSubscription.unsubscribe();
+        await realtimeSubscription.unsubscribe();
       }
     },
 
@@ -57,8 +57,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
               const { x, y } = newPixel;
 
               if (validateCoordinates(x, y)) {
-                pixels[y][x] = newPixel;
-                set({ pixels: [...pixels] });
+                const updatedPixels = pixels.map(row => [...row]);
+                updatedPixels[y][x] = newPixel;
+                set({ pixels: updatedPixels });
               }
             }
           )
@@ -97,8 +98,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         if (error) throw error;
 
         const pixels = get().pixels;
-        pixels[pixel.y][pixel.x] = pixel;
-        set({ pixels: [...pixels] });
+        const updatedPixels = pixels.map(row => [...row]);
+        updatedPixels[pixel.y][pixel.x] = pixel;
+        set({ pixels: updatedPixels });
       } catch (error) {
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to update pixel'),
@@ -109,7 +111,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     },
 
     loadPixels: async (startRow = 0, startCol = 0, endRow = GRID_SIZE - 1, endCol = GRID_SIZE - 1) => {
-      if (!validateCoordinates(startCol, startRow) || !validateCoordinates(endCol, endRow)) {
+      if (!validateCoordinates(startRow, startCol) || !validateCoordinates(endRow, endCol)) {
         throw new Error('Invalid coordinate range');
       }
 
@@ -136,22 +138,25 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           }
 
           const pixels = get().pixels;
+          const updatedPixels = pixels.map(row => [...row]);
           
           // Reset pixels in range
           for (let y = startRow; y <= endRow; y++) {
             for (let x = startCol; x <= endCol; x++) {
-              pixels[y][x] = null;
+              if (updatedPixels[y]) {
+                updatedPixels[y][x] = null;
+              }
             }
           }
 
           // Update with validated pixels
           data.forEach((pixel: PixelData) => {
             if (validatePixel(pixel)) {
-              pixels[pixel.y][pixel.x] = pixel;
+              updatedPixels[pixel.y][pixel.x] = pixel;
             }
           });
 
-          set({ pixels: [...pixels], loading: false, error: null });
+          set({ pixels: updatedPixels, loading: false, error: null });
           return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Failed to load pixels');
@@ -183,47 +188,63 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
       if (!validateCoordinates(x, y)) return null;
       
       const pixels = get().pixels;
-      return pixels[y][x];
+      return pixels[y]?.[x] || null;
     },
 
     findAvailablePixel: async () => {
       try {
         const supabase = await getSupabase();
-        const { data, error } = await supabase
+        const { data: lastPixel } = await supabase
           .from('pixels')
           .select('x, y')
           .order('created_at', { ascending: false })
-          .limit(1);
+          .limit(1)
+          .single();
 
-        if (error) throw error;
-
-        // Start searching from the center if no pixels exist
-        if (!data || data.length === 0) {
+        // Start from center if no pixels exist
+        if (!lastPixel) {
           return { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) };
         }
 
-        // Find next available pixel in a spiral pattern
-        const lastPixel = data[0];
-        let x = lastPixel.x;
-        let y = lastPixel.y;
+        const searchRadius = 10;
+        const xRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.x - searchRadius + i);
+        const yRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.y - searchRadius + i);
 
-        for (let radius = 1; radius < GRID_SIZE / 2; radius++) {
+        // Get all pixels in search area
+        const { data: existingPixels } = await supabase
+          .from('pixels')
+          .select('x, y')
+          .in('x', xRange)
+          .in('y', yRange);
+
+        // Create set of taken coordinates
+        const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
+
+        // Find first available coordinate
+        for (const y of yRange) {
+          for (const x of xRange) {
+            if (validateCoordinates(x, y) && !taken.has(`${x},${y}`)) {
+              return { x, y };
+            }
+          }
+        }
+
+        // If no pixel found in search area, expand search
+        for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
+          const { data: pixels } = await supabase
+            .from('pixels')
+            .select('x, y')
+            .or(`x.eq.${lastPixel.x - radius},x.eq.${lastPixel.x + radius}`)
+            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`);
+
+          const takenExpanded = new Set(pixels?.map(p => `${p.x},${p.y}`));
+
           for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
-              const newX = x + dx;
-              const newY = y + dy;
-
-              if (validateCoordinates(newX, newY)) {
-                const { data: existingPixel } = await supabase
-                  .from('pixels')
-                  .select('id')
-                  .eq('x', newX)
-                  .eq('y', newY)
-                  .single();
-
-                if (!existingPixel) {
-                  return { x: newX, y: newY };
-                }
+              const x = lastPixel.x + dx;
+              const y = lastPixel.y + dy;
+              if (validateCoordinates(x, y) && !takenExpanded.has(`${x},${y}`)) {
+                return { x, y };
               }
             }
           }

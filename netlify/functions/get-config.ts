@@ -8,6 +8,12 @@ export const handler: Handler = async () => {
 
     return {
       statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      },
       body: JSON.stringify({
         SOLANA_RPC_URL: process.env.SOLANA_RPC_URL
       })
@@ -16,6 +22,12 @@ export const handler: Handler = async () => {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
     return {
       statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      },
       body: JSON.stringify({ 
         error: `Fehler beim Laden der Konfiguration: ${message}` 
       })

@@ -12,149 +12,172 @@ if (!rpcUrl?.startsWith('http')) {
 }
 
 const umi = createUmi(rpcUrl).use(irysUploader());
-// Explicitly set null signer to indicate client-side signing
+// Explizit null-signer setzen um client-side signing zu erzwingen
 umi.use(signerIdentity(none()));
 
-export const handler: Handler = async (event) => {
+const corsHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+};
+
+export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: ''
+    };
+  }
+
   if (!event.body) {
     return { 
       statusCode: 400, 
-      body: JSON.stringify({ error: 'Missing request body' }),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Missing request body' })
     };
   }
 
   try {
-    const { wallet, name, description, imageUrl, x, y } = JSON.parse(event.body);
+    // Safe JSON parsing
+    let body;
+    try {
+      body = JSON.parse(event.body);
+    } catch {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid JSON body' })
+      };
+    }
+
+    const { wallet, name, description, imageUrl, x, y } = body;
 
     if (!wallet || !name || !description || !imageUrl) {
       return { 
-        statusCode: 400, 
-        body: JSON.stringify({ error: 'Missing required fields' }),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Missing required fields' })
       };
     }
 
     const walletPublicKey = publicKey(wallet);
 
-    // Verify pixel availability with proper headers
+    // Pixel-Verfügbarkeit prüfen
     const { data: existingPixel } = await supabase
       .from('pixels')
-      .select('x, y', { 
-        headers: { 
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      })
+      .select('x, y')
       .eq('x', x)
       .eq('y', y)
       .maybeSingle();
 
     if (existingPixel) {
       return { 
-        statusCode: 400, 
-        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` }),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` })
       };
     }
 
-    // Validate image with proper headers
-    const imageResponse = await fetch(imageUrl, {
-      headers: {
-        'Accept': 'image/*',
-        'User-Agent': 'Trumpillion/1.0'
+    // Bild validieren & laden mit Timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const imageResponse = await fetch(imageUrl, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'image/*',
+          'User-Agent': 'Trumpillion/1.0'
+        }
+      });
+
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
       }
-    });
 
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
-    }
+      const imageBuffer = await imageResponse.arrayBuffer();
+      const contentType = imageResponse.headers.get('Content-Type') || 'image/jpeg';
 
-    const imageBuffer = await imageResponse.arrayBuffer();
+      if (imageBuffer.byteLength > 10 * 1024 * 1024) {
+        return { 
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' })
+        };
+      }
 
-    if (imageBuffer.byteLength > 10 * 1024 * 1024) {
+      // Metadata vorbereiten
+      const metadata = {
+        name,
+        symbol: 'TRUMPILLION',
+        description,
+        image: imageUrl,
+        attributes: [
+          { trait_type: 'X Coordinate', value: x.toString() },
+          { trait_type: 'Y Coordinate', value: y.toString() }
+        ],
+        properties: {
+          files: [{ uri: imageUrl, type: contentType }],
+          category: 'image',
+          creators: [{ address: base58.serialize(walletPublicKey), share: 100 }]
+        }
+      };
+
+      // Metadata hochladen
+      const { uri } = await umi.uploader.uploadJson(metadata);
+
+      // Mint erzeugen
+      const mint = generateSigner(umi);
+
+      // Transaktion vorbereiten
+      const transaction = createV1(umi, {
+        mint,
+        name,
+        symbol: 'TRUMPILLION',
+        uri,
+        sellerFeeBasisPoints: 500,
+        tokenStandard: TokenStandard.NonFungible,
+        creators: [{ address: walletPublicKey, share: 100, verified: true }]
+      }).toTransaction();
+
+      // Transaktion für Client serialisieren
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false
+      });
+
+      // Sichere Extraktion der Mint-Adresse
+      let mintAddress = '';
+      if (mint?.publicKey && typeof mint.publicKey.toBase58 === 'function') {
+        mintAddress = mint.publicKey.toBase58();
+      } else {
+        throw new Error('Mint publicKey is invalid or undefined');
+      }
+
       return { 
-        statusCode: 400, 
-        body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' }),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
+        statusCode: 200, 
+        headers: corsHeaders,
+        body: JSON.stringify({ 
+          transaction: serializedTransaction.toString('base64'),
+          mint: mintAddress
+        })
       };
+
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    // Prepare metadata
-    const metadata = {
-      name,
-      symbol: 'TRUMPILLION',
-      description,
-      image: imageUrl,
-      attributes: [
-        { trait_type: 'X Coordinate', value: x.toString() },
-        { trait_type: 'Y Coordinate', value: y.toString() }
-      ],
-      properties: {
-        files: [{ uri: imageUrl, type: 'image/jpeg' }],
-        category: 'image',
-        creators: [{ address: base58.serialize(walletPublicKey), share: 100 }]
-      }
-    };
-
-    // Upload metadata
-    const { uri } = await umi.uploader.uploadJson(metadata);
-
-    // Generate mint
-    const mint = generateSigner(umi);
-
-    // Create unsigned transaction
-    const transaction = createV1(umi, {
-      mint,
-      name,
-      symbol: 'TRUMPILLION',
-      uri,
-      sellerFeeBasisPoints: 500,
-      tokenStandard: TokenStandard.NonFungible,
-      creators: [{ address: walletPublicKey, share: 100, verified: true }]
-    }).toTransaction();
-
-    // Serialize transaction for client
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false
-    }).toString('base64');
-
-    return { 
-      statusCode: 200, 
-      body: JSON.stringify({ 
-        transaction: serializedTransaction,
-        mint: mint.publicKey.toString()
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    };
-
-  } catch (error: any) {
+  } catch (error) {
     console.error('NFT minting error:', error);
 
     return { 
       statusCode: 500, 
+      headers: corsHeaders,
       body: JSON.stringify({ 
-        error: error.message || 'Fehler beim NFT Minting' 
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
+        error: error instanceof Error ? error.message : 'Fehler beim NFT Minting' 
+      })
     };
   }
 };

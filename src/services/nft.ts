@@ -10,12 +10,16 @@ const MAX_IMAGE_SIZE_MB = 10;
 const TX_CONFIRMATION_TIMEOUT_MS = 30000;
 
 export class NFTService {
-  private umi;
+  private umi: ReturnType<typeof createUmi>;
   private retryCount = 3;
   private retryDelay = 1000;
 
   constructor() {
-    this.umi = createUmi(process.env.SOLANA_RPC_URL).use(irysUploader());
+    const rpc = process.env.SOLANA_RPC_URL;
+    if (!rpc?.startsWith('http')) {
+      throw new Error('SOLANA_RPC_URL ist ungültig oder fehlt');
+    }
+    this.umi = createUmi(rpc).use(irysUploader());
   }
 
   async mintNFT(

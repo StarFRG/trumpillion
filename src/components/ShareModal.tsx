@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Twitter, Facebook, Share2 } from 'lucide-react';
 import { PixelData } from '../types';
 import { metaService } from '../services/meta';
@@ -10,6 +10,8 @@ interface ShareModalProps {
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, pixel }) => {
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     if (isOpen && pixel) {
       metaService.updateShareMetaTags({
@@ -21,7 +23,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, pixel }
     }
 
     return () => {
-      if (isOpen) {
+      if (isOpen && pixel) {
         metaService.resetMetaTags();
       }
     };
@@ -36,7 +38,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, pixel }
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
-      alert('Link copied to clipboard!');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -95,11 +98,19 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, pixel }
           </div>
 
           <button
+            onClick={() => handleShare('whatsapp')}
+            className="w-full flex items-center justify-center gap-2 p-3 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] rounded-lg transition-colors"
+          >
+            <Share2 size={20} />
+            WhatsApp
+          </button>
+
+          <button
             onClick={handleCopyLink}
             className="w-full flex items-center justify-center gap-2 p-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
           >
             <Share2 size={20} />
-            Copy Link
+            {copied ? 'Link copied!' : 'Copy Link'}
           </button>
         </div>
       </div>

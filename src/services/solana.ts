@@ -61,11 +61,10 @@ export class SolanaService {
   }
 
   async processPayment(wallet: WalletContextState): Promise<string> {
-    if (!wallet?.publicKey) {
+    const pubkey = wallet?.publicKey;
+    if (!pubkey) {
       throw new Error('Wallet ist nicht verbunden');
     }
-
-    const pubkey = wallet.publicKey;
 
     return await this.retry(async () => {
       try {
@@ -90,11 +89,19 @@ export class SolanaService {
         );
 
         const signedTx = await wallet.signTransaction(transaction);
+        if (!signedTx) {
+          throw new Error('Transaktion konnte nicht signiert werden');
+        }
+
         const txId = await connection.sendRawTransaction(signedTx.serialize(), {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
           maxRetries: 3
         });
+
+        if (!txId || typeof txId !== 'string') {
+          throw new Error('Transaktion konnte nicht gesendet werden');
+        }
 
         const confirmation = await connection.confirmTransaction({
           signature: txId,
@@ -111,7 +118,10 @@ export class SolanaService {
         console.error('Payment failed:', error);
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Payment failed'),
-          context: { action: 'process_payment' }
+          context: { 
+            action: 'process_payment',
+            wallet: typeof pubkey?.toBase58 === 'function' ? pubkey.toBase58() : ''
+          }
         });
         throw new Error('Transaktion fehlgeschlagen. Bitte versuche es erneut.');
       }
@@ -126,11 +136,10 @@ export class SolanaService {
     x?: number,
     y?: number
   ): Promise<string> {
-    if (!wallet?.publicKey) {
+    const pubkey = wallet?.publicKey;
+    if (!pubkey) {
       throw new Error('Wallet ist nicht verbunden');
     }
-
-    const pubkey = wallet.publicKey;
 
     try {
       const response = await fetch('/.netlify/functions/mint-nft', {
@@ -140,7 +149,7 @@ export class SolanaService {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          wallet: pubkey.toString(),
+          wallet: typeof pubkey?.toBase58 === 'function' ? pubkey.toBase58() : '',
           name,
           description,
           imageUrl,
@@ -155,11 +164,20 @@ export class SolanaService {
       }
 
       const { transaction: serializedTx, mint } = await response.json();
+
+      if (!serializedTx || typeof serializedTx !== 'string') {
+        throw new Error('Ungültige Transaktion erhalten');
+      }
       
       const connection = await this.getConnection();
       const transaction = Transaction.from(Buffer.from(serializedTx, 'base64'));
       
       const signature = await wallet.sendTransaction(transaction, connection);
+      
+      if (!signature || typeof signature !== 'string') {
+        throw new Error('Transaktion konnte nicht gesendet werden');
+      }
+
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
       
       const confirmation = await connection.confirmTransaction({
@@ -179,7 +197,7 @@ export class SolanaService {
         error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
         context: { 
           action: 'mint_nft',
-          wallet: pubkey.toString(),
+          wallet: typeof pubkey?.toBase58 === 'function' ? pubkey.toBase58() : '',
           name,
           x,
           y

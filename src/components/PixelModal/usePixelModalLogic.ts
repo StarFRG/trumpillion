@@ -17,7 +17,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
       setError(null);
 
       const supabase = await getSupabase();
-      
+
       // Check if pixel is already taken
       const { data: existingPixel } = await supabase
         .from('pixels')
@@ -31,9 +31,21 @@ export const usePixelModalLogic = (onClose: () => void) => {
       }
 
       const fileExt = file.name.split('.').pop();
+      if (!fileExt) throw new Error('File extension missing');
+
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
-      const { data: storageData, error: storageError } = await supabase.storage
+      // Remove existing file if it exists
+      const { data: existingFileList } = await supabase.storage
+        .from('pixel-images')
+        .list('', { search: fileName });
+
+      if (existingFileList?.length) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
+      // Upload file
+      const { data: uploadData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
@@ -42,19 +54,26 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       if (storageError) throw storageError;
 
-      const { data: { publicUrl } } = supabase.storage
+      // Get public URL
+      const { data: publicData } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
+      if (!publicData?.publicUrl) {
+        throw new Error('Could not generate public URL');
+      }
+
+      const publicUrl = publicData.publicUrl;
       setImageUrl(publicUrl);
 
+      // Insert pixel into DB
       const { error: dbError } = await supabase
         .from('pixels')
-        .insert({
+        .upsert({
           x: coordinates.x,
           y: coordinates.y,
           image_url: publicUrl,
-          owner: wallet.publicKey?.toString()
+          owner: wallet.publicKey?.toString() ?? ''
         });
 
       if (dbError) throw dbError;
@@ -64,7 +83,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
+        context: {
           action: 'upload_pixel',
           coordinates,
           wallet: wallet.publicKey?.toString()
