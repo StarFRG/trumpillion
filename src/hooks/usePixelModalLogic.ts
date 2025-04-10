@@ -3,6 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { getSupabase } from '../../lib/supabase';
 import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
+import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
 
 export const usePixelModalLogic = (onClose: () => void) => {
   const [uploading, setUploading] = useState(false);
@@ -12,12 +13,16 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
   const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
     try {
+      if (!isWalletConnected(wallet)) {
+        throw new Error('Wallet ist nicht verbunden oder ungültig');
+      }
+
       validateFile(file);
       setUploading(true);
       setError(null);
 
       const supabase = await getSupabase();
-
+      
       // Check if pixel is already taken
       const { data: existingPixel } = await supabase
         .from('pixels')
@@ -31,21 +36,22 @@ export const usePixelModalLogic = (onClose: () => void) => {
       }
 
       const fileExt = file.name.split('.').pop();
-      if (!fileExt) throw new Error('File extension missing');
+      if (!fileExt) {
+        throw new Error('Dateiendung konnte nicht ermittelt werden');
+      }
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
-      // Remove existing file if it exists
-      const { data: existingFileList } = await supabase.storage
+      // Check for and remove existing file
+      const { data: existingFiles } = await supabase.storage
         .from('pixel-images')
         .list('', { search: fileName });
 
-      if (existingFileList?.length) {
+      if (existingFiles?.length) {
         await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
-      // Upload file
-      const { data: uploadData, error: storageError } = await supabase.storage
+      const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
@@ -54,26 +60,24 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       if (storageError) throw storageError;
 
-      // Get public URL
       const { data: publicData } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Could not generate public URL');
+        throw new Error('Öffentliche URL konnte nicht generiert werden');
       }
 
       const publicUrl = publicData.publicUrl;
       setImageUrl(publicUrl);
 
-      // Insert pixel into DB
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
           x: coordinates.x,
           y: coordinates.y,
           image_url: publicUrl,
-          owner: wallet.publicKey?.toString() ?? ''
+          owner: getWalletAddress(wallet)
         });
 
       if (dbError) throw dbError;
@@ -86,14 +90,14 @@ export const usePixelModalLogic = (onClose: () => void) => {
         context: {
           action: 'upload_pixel',
           coordinates,
-          wallet: wallet.publicKey?.toString()
+          wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, [wallet.publicKey, onClose]);
+  }, [wallet, onClose]);
 
   return {
     uploading,

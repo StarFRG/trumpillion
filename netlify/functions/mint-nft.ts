@@ -12,7 +12,6 @@ if (!rpcUrl?.startsWith('http')) {
 }
 
 const umi = createUmi(rpcUrl).use(irysUploader());
-// Explizit null-signer setzen um client-side signing zu erzwingen
 umi.use(signerIdentity(none()));
 
 const corsHeaders = {
@@ -45,7 +44,11 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     let body;
     try {
       body = JSON.parse(event.body);
-    } catch {
+    } catch (error) {
+      monitoring.logError({
+        error,
+        context: { action: 'invalid_json', body: event.body }
+      });
       return {
         statusCode: 400,
         headers: corsHeaders,

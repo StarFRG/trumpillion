@@ -1,14 +1,21 @@
 import { useState, useCallback } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { getSupabase } from '../lib/supabase';
 import { validateFile } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
+import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 
 export const usePixelUpload = () => {
+  const wallet = useWallet();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }): Promise<string> => {
     try {
+      if (!isWalletConnected(wallet)) {
+        throw new Error('Wallet ist nicht verbunden oder ungültig');
+      }
+
       validateFile(file);
       setUploading(true);
       setError(null);
@@ -58,7 +65,8 @@ export const usePixelUpload = () => {
         .upsert({
           x: coordinates.x,
           y: coordinates.y,
-          image_url: publicUrl
+          image_url: publicUrl,
+          owner: getWalletAddress(wallet)
         });
 
       if (dbError) throw dbError;
@@ -68,14 +76,18 @@ export const usePixelUpload = () => {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { action: 'upload_pixel', coordinates }
+        context: { 
+          action: 'upload_pixel', 
+          coordinates,
+          wallet: getWalletAddress(wallet)
+        }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
       throw error;
     } finally {
       setUploading(false);
     }
-  }, []);
+  }, [wallet]);
 
   return {
     uploading,

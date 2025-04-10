@@ -22,19 +22,17 @@ const queryClient = new QueryClient({
 const App: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [selectedPixel, setSelectedPixel] = useState<{ x: number; y: number } | null>(null);
-  const [selectedPixelData, setSelectedPixelData] = useState<any>(null);
   const [fromButton, setFromButton] = useState(false);
   const { connected } = useWallet();
 
   const openModal = (pixel: { x: number; y: number; data?: any }) => {
     try {
       setSelectedPixel(pixel);
-      setSelectedPixelData(pixel.data);
       setFromButton(false);
       setShowModal(true);
     } catch (error) {
       console.error("Fehler beim Öffnen des Modals:", error);
-      toast.error("Modal konnte nicht geöffnet werden");
+      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
     }
   };
 
@@ -44,7 +42,7 @@ const App: React.FC = () => {
       setShowModal(true);
     } catch (error) {
       console.error("Fehler beim Öffnen des Button-Modals:", error);
-      toast.error("Modal konnte nicht geöffnet werden");
+      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
     }
   };
 
@@ -52,11 +50,10 @@ const App: React.FC = () => {
     try {
       setShowModal(false);
       setSelectedPixel(null);
-      setSelectedPixelData(null);
       setFromButton(false);
     } catch (error) {
       console.error("Fehler beim Schließen des Modals:", error);
-      toast.error("Modal konnte nicht geschlossen werden");
+      toast.error(`Modal konnte nicht geschlossen werden: ${(error as Error).message}`);
     }
   };
 
@@ -155,7 +152,7 @@ const App: React.FC = () => {
               >
                 <button
                   onClick={openModalFromButton}
-                  className="buy-button"
+                  className="buy-button group"
                 >
                   Buy Pixel Now
                   <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -171,7 +168,10 @@ const App: React.FC = () => {
               transition={{ duration: 1 }}
               className="absolute inset-0"
             >
-              <PixelGrid onPixelClick={openModal} />
+              <PixelGrid 
+                onPixelClick={openModal} 
+                selectedPixel={selectedPixel}
+              />
             </motion.div>
           </div>
         </main>

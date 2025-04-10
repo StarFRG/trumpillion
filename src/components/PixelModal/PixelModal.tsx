@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { monitoring } from '../../services/monitoring';
 import { validateFile } from '../../utils/validation';
 import { ShareModal } from '../ShareModal';
+import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
 
 interface PixelModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
   const [selectedCoordinates, setSelectedCoordinates] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (!isOpen || !wallet?.connected) return;
+    if (!isOpen || !isWalletConnected(wallet)) return;
 
     setLoading(true);
     setError(null);
@@ -78,7 +79,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
     };
 
     initializePixel();
-  }, [isOpen, wallet?.connected, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
+  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
 
   const handleFileSelect = useCallback((file: File) => {
     try {
@@ -150,7 +151,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
   }, [uploadedImageUrl, previewUrl, onClose]);
 
   const handleMint = useCallback(async () => {
-    if (!wallet?.connected || !wallet?.publicKey) {
+    if (!isWalletConnected(wallet)) {
       setError(t('wallet.error.notConnected'));
       return;
     }
@@ -230,7 +231,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
           y: selectedCoordinates.y,
           image_url: publicUrl,
           nft_url: nftUrl,
-          owner: wallet?.publicKey?.toString?.() ?? ''
+          owner: getWalletAddress(wallet)
         });
 
       if (dbError) throw dbError;
@@ -238,11 +239,11 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
       setUploadSuccess(true);
       setShowShareDialog(true);
       if (!showShareDialog) {
-  setUploadedFile(null);
-  setPreviewUrl(null);
-  setTitle('');
-  setDescription('');
-}
+        setUploadedFile(null);
+        setPreviewUrl(null);
+        setTitle('');
+        setDescription('');
+      }
     } catch (error) {
       console.error('Error:', error);
       monitoring.logError({
@@ -250,7 +251,7 @@ const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSele
         context: { 
           action: 'mint_nft',
           coordinates: selectedCoordinates,
-          wallet: wallet?.publicKey?.toString?.() ?? ''
+          wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : t('common.error'));

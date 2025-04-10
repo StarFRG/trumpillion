@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { monitoring } from '../services/monitoring';
+import { isWalletConnected } from '../utils/walletUtils';
 
 export const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000;
@@ -15,14 +16,14 @@ export const useWalletConnection = () => {
 
   useEffect(() => {
     const cachedWalletType = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (cachedWalletType && !wallet?.connected) {
+    if (cachedWalletType && !isWalletConnected(wallet)) {
       connect(cachedWalletType);
     }
   }, []);
 
   useEffect(() => {
     if (wallet?.connected && wallet?.wallet?.adapter?.name) {
-      localStorage.setItem(WALLET_STORAGE_KEY, wallet.wallet.adapter.name);
+      localStorage.setItem(WALLET_STORAGE_KEY, wallet.wallet?.adapter?.name ?? '');
     }
   }, [wallet?.connected, wallet?.wallet?.adapter?.name]);
 

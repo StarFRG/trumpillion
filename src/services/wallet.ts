@@ -3,6 +3,7 @@ import { WalletContextState } from '@solana/wallet-adapter-react';
 import { z } from 'zod';
 import { monitoring } from './monitoring';
 import { solanaService } from './solana';
+import { isWalletConnected, getWalletAddress, getWalletPublicKey } from '../utils/walletUtils';
 
 const WalletValidationSchema = z.object({
   publicKey: z.instanceof(PublicKey),
@@ -31,21 +32,23 @@ export class WalletValidationService {
   }
 
   static async validateBalance(wallet: WalletContextState, requiredAmount: number): Promise<boolean> {
-    const pubkey = wallet?.publicKey;
-    if (!pubkey) {
+    if (!isWalletConnected(wallet)) {
       throw new Error('Wallet ist nicht verbunden');
     }
+
+    const pubkey = getWalletPublicKey(wallet);
+    if (!pubkey) throw new Error('Wallet ist nicht verbunden');
 
     try {
       const connection = await solanaService.getConnection();
       const balance = await connection.getBalance(pubkey);
-      const hasEnoughBalance = balance >= requiredAmount;
+      const hasEnoughBalance = typeof balance === 'number' && balance >= requiredAmount;
 
       if (!hasEnoughBalance) {
         monitoring.logEvent('insufficient_balance', {
           required: requiredAmount,
           actual: balance,
-          wallet: pubkey.toString()
+          wallet: getWalletAddress(wallet)
         });
       }
 
@@ -56,7 +59,7 @@ export class WalletValidationService {
         error: error instanceof Error ? error : new Error('Guthaben-Validierung fehlgeschlagen'),
         context: { 
           action: 'validate_balance',
-          wallet: pubkey.toString(),
+          wallet: getWalletAddress(wallet),
           requiredAmount 
         }
       });
@@ -70,11 +73,11 @@ export class WalletValidationService {
         throw new Error('Wallet oder Owner Adresse fehlt');
       }
 
-      if (!walletAddress.startsWith('0x') && !walletAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
+      if (!walletAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
         throw new Error('Ungültige Wallet-Adresse');
       }
 
-      if (!ownerAddress.startsWith('0x') && !ownerAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
+      if (!ownerAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
         throw new Error('Ungültige Owner-Adresse');
       }
 
@@ -99,7 +102,7 @@ export class WalletValidationService {
         throw new Error('Keine Transaktion angegeben');
       }
 
-      if (!transaction.match(/^[A-Za-z0-9+/=]+$/)) {
+      if (!transaction.match(/^[A-HJ-NP-Za-km-z0-9]{43,44}$/)) {
         throw new Error('Ungültiges Transaktionsformat');
       }
 

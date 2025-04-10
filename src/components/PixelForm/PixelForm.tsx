@@ -3,6 +3,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { getSupabase } from '../../lib/supabase';
 import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
+import { getWalletAddress } from '../../utils/walletUtils';
 
 interface PixelFormProps {
   coordinates: { x: number; y: number };
@@ -50,14 +51,14 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         context: { 
           action: 'upload_pixel_image',
           coordinates,
-          wallet: wallet?.publicKey?.toString?.() ?? ''
+          wallet: getWalletAddress(wallet)
         }
       });
       onError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onSuccess, onError, wallet?.publicKey]);
+  }, [coordinates, onSuccess, onError, wallet]);
 
   return (
     <div className="space-y-4">

@@ -6,6 +6,7 @@ import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
 import { solanaService } from '../services/solana';
 import { monitoring } from '../services/monitoring';
+import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -112,15 +113,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleUpload = useCallback(async () => {
-    if (!wallet?.connected || !wallet?.publicKey) {
-      setError('Bitte verbinde dein Wallet');
-      return;
-    }
-
-    if (!uploadedFile || !selectedPixel) {
-      setError('Bitte wähle ein Bild aus');
-      return;
-    }
+    if (!uploadedFile || !selectedPixel || !isWalletConnected(wallet)) return;
 
     setLoading(true);
     setError(null);
@@ -184,7 +177,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           y: selectedPixel.y,
           image_url: publicUrl,
           nft_url: `https://solscan.io/token/${nftAddress}?cluster=devnet`,
-          owner: wallet?.publicKey?.toString?.() ?? ''
+          owner: getWalletAddress(wallet)
         });
 
       if (dbError) throw dbError;
@@ -199,7 +192,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         context: { 
           action: 'upload_pixel',
           coordinates: selectedPixel,
-          wallet: wallet?.publicKey?.toString?.() ?? ''
+          wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
@@ -233,7 +226,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           </button>
         </div>
 
-        {!wallet?.connected ? (
+        {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">Verbinde dein Wallet um fortzufahren</p>
             <WalletButton />
