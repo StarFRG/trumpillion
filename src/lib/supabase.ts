@@ -108,7 +108,7 @@ export const getSupabase = async () => {
           throw error;
         }
 
-        console.warn(`Supabase connection attempt ${attempts} failed, retrying...`);
+        console.warn(`Supabase connection attempt ${attempts} failed...`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
     }

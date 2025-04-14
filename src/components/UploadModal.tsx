@@ -73,7 +73,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       // Check if pixel is already taken
       const { data: existingPixel, error: fetchError } = await supabase
         .from('pixels')
-        .select('owner', { head: false })
+        .select('owner')
         .eq('x', coordinates?.x)
         .eq('y', coordinates?.y)
         .maybeSingle();
