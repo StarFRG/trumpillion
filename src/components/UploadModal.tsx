@@ -71,15 +71,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const fileName = `pixel_${coordinates?.x || 0}_${coordinates?.y || 0}.${fileExt}`;
 
       // Check if pixel is already taken
-      const { data: existingPixel, error: fetchError } = await supabase
+      const { data: existingPixels, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', coordinates?.x)
         .eq('y', coordinates?.y)
-        .maybeSingle();
+        .limit(1);
 
-      if (fetchError) throw fetchError;
-      if (existingPixel?.owner) {
+      if (checkError) throw checkError;
+      if (existingPixels && existingPixels.length > 0) {
         throw new Error('This pixel is already owned');
       }
 
@@ -225,6 +225,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const initCoordinates = async () => {
         try {
           if (selectedPixel) {
+            // Check if pixel is already taken
+            const supabase = await getSupabase();
+            const { data: existingPixels, error: checkError } = await supabase
+              .from('pixels')
+              .select('owner')
+              .eq('x', selectedPixel.x)
+              .eq('y', selectedPixel.y)
+              .limit(1);
+
+            if (checkError) throw checkError;
+            if (existingPixels && existingPixels.length > 0) {
+              throw new Error('Selected pixel is already owned');
+            }
+
             setCoordinates(selectedPixel);
           } else {
             const availablePixel = await findAvailablePixel();
