@@ -70,6 +70,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${coordinates?.x || 0}_${coordinates?.y || 0}.${fileExt}`;
 
+      // Check if pixel is already taken
+      const { data: existingPixel, error: fetchError } = await supabase
+        .from('pixels')
+        .select('owner', { head: false })
+        .eq('x', coordinates?.x)
+        .eq('y', coordinates?.y)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+      if (existingPixel?.owner) {
+        throw new Error('This pixel is already owned');
+      }
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
