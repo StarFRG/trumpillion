@@ -11,6 +11,58 @@ interface Props {
   children: ReactNode;
 }
 
+// Custom hook to safely handle localStorage
+const useLocalStorageWithFallback = (key: string, initialValue: string | null = null) => {
+  // Only try to get from localStorage on initial mount
+  const getStoredValue = () => {
+    try {
+      const item = window.localStorage.getItem(key);
+      // Return initialValue if item is null or empty
+      if (!item) return initialValue;
+      
+      // Try to parse the item, if it fails return initialValue
+      try {
+        return JSON.parse(item);
+      } catch {
+        // If parsing fails, remove the invalid value
+        window.localStorage.removeItem(key);
+        return initialValue;
+      }
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('LocalStorage access error'),
+        context: { component: 'WalletProvider', key }
+      });
+      return initialValue;
+    }
+  };
+
+  const [storedValue, setStoredValue] = useState(getStoredValue);
+
+  const setValue = (value: any) => {
+    try {
+      // If value is null, remove the item
+      if (value === null) {
+        setStoredValue(null);
+        window.localStorage.removeItem(key);
+        return;
+      }
+
+      // Ensure we can stringify the value before setting it
+      const stringValue = JSON.stringify(value);
+      setStoredValue(value);
+      window.localStorage.setItem(key, stringValue);
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('LocalStorage save error'),
+        context: { component: 'WalletProvider', key }
+      });
+    }
+  };
+
+  return [storedValue, setValue] as const;
+};
+
 export const WalletContextProvider: FC<Props> = ({ children }) => {
   const wallets = useMemo(
     () => [
@@ -23,6 +75,7 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
   // Endpoint wird async geladen
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedWallet, setSelectedWallet] = useLocalStorageWithFallback('selectedWallet');
 
   useEffect(() => {
     const initEndpoint = async () => {

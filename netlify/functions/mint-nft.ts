@@ -12,6 +12,7 @@ if (!rpcUrl?.startsWith('http')) {
 }
 
 const umi = createUmi(rpcUrl).use(irysUploader());
+// Explizit null-signer setzen um client-side signing zu erzwingen
 umi.use(signerIdentity(none()));
 
 const corsHeaders = {
@@ -44,11 +45,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     let body;
     try {
       body = JSON.parse(event.body);
-    } catch (error) {
-      monitoring.logError({
-        error,
-        context: { action: 'invalid_json', body: event.body }
-      });
+    } catch {
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -58,7 +55,15 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
 
     const { wallet, name, description, imageUrl, x, y } = body;
 
-    if (!wallet || !name || !description || !imageUrl) {
+    if (!wallet || typeof wallet !== 'string' || wallet.length < 32) {
+      return { 
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Missing or invalid publicKey' })
+      };
+    }
+
+    if (!name || !description || !imageUrl) {
       return { 
         statusCode: 400,
         headers: corsHeaders,
@@ -66,12 +71,22 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
+    // Validate image URL format
+    if (!/^https:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Ungültiges Bildformat oder URL.' })
+      };
+    }
+
     const walletPublicKey = publicKey(wallet);
+    const walletBase58 = base58.serialize(walletPublicKey);
 
     // Pixel-Verfügbarkeit prüfen
     const { data: existingPixel } = await supabase
       .from('pixels')
-      .select('x, y')
+      .select('x, y', { head: false })
       .eq('x', x)
       .eq('y', y)
       .maybeSingle();
@@ -125,12 +140,16 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         properties: {
           files: [{ uri: imageUrl, type: contentType }],
           category: 'image',
-          creators: [{ address: base58.serialize(walletPublicKey), share: 100 }]
+          creators: [{ address: walletBase58, share: 100 }]
         }
       };
 
       // Metadata hochladen
-      const { uri } = await umi.uploader.uploadJson(metadata);
+      const uploadResult = await umi.uploader.uploadJson(metadata);
+      if (!uploadResult?.uri) {
+        throw new Error('Fehler beim Hochladen der Metadaten (uri fehlt)');
+      }
+      const { uri } = uploadResult;
 
       // Mint erzeugen
       const mint = generateSigner(umi);
@@ -143,7 +162,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         uri,
         sellerFeeBasisPoints: 500,
         tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletPublicKey, share: 100, verified: true }]
+        creators: [{ address: walletBase58, share: 100, verified: true }]
       }).toTransaction();
 
       // Transaktion für Client serialisieren
@@ -152,12 +171,13 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       });
 
       // Sichere Extraktion der Mint-Adresse
-      let mintAddress = '';
-      if (mint?.publicKey && typeof mint.publicKey.toBase58 === 'function') {
-        mintAddress = mint.publicKey.toBase58();
-      } else {
-        throw new Error('Mint publicKey is invalid or undefined');
+      const mintAddress = mint?.publicKey?.toBase58?.();
+      if (!mintAddress) {
+        throw new Error('Mint publicKey is missing or invalid');
       }
+
+      // Log mint details for debugging
+      console.log('Mint prepared:', { mintAddress, uri });
 
       return { 
         statusCode: 200, 

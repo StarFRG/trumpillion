@@ -70,13 +70,18 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
     );
   }
 
-  const isConnected = isWalletConnected(wallet) || isConnecting;
+  const isConnected = isWalletConnected(wallet);
 
   const handleWalletAction = useCallback(async () => {
     try {
       if (isWalletConnected(wallet)) {
         await disconnect();
       } else {
+        // Wenn kein Wallet selektiert wurde, öffnet WalletMultiButton automatisch das Modal
+        if (!wallet?.wallet) {
+          return; // wichtig: nichts tun, damit WalletMultiButton das Modal öffnet
+        }
+
         await connect();
       }
     } catch (error) {
@@ -110,7 +115,7 @@ export const WalletButton: FC<WalletButtonProps> = memo(({ minimal = false }) =>
         )}
         <WalletMultiButton 
           className={clsx('wallet-button', { 
-            connected: isWalletConnected(wallet),
+            connected: isConnected,
             error: !!connectionError,
             connecting: isConnecting,
             reconnecting: isReconnecting

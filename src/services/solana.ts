@@ -1,9 +1,8 @@
-import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, TransactionSignature } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import { monitoring } from './monitoring';
-import { mintNftFromServer } from '../api/mintNft';
 import { getRpcEndpoint } from '../lib/getRpcEndpoint';
-import { isWalletConnected, getWalletPublicKey, getWalletAddress } from '../utils/walletUtils';
+import { isWalletConnected, getWalletPublicKey, getWalletAddressSafe } from '../utils/walletUtils';
 
 const NETWORK = 'mainnet-beta';
 const PROJECT_WALLET = new PublicKey('4PvW69mVK1hZpaSmfge3XUWWBhfuceaegeoiD3BTCnB6');
@@ -145,12 +144,6 @@ export class SolanaService {
           maxRetries: 3
         });
 
-        if (!txId || typeof txId !== 'string') {
-          const error = new Error('Transaktion konnte nicht gesendet werden') as TransactionError;
-          error.type = TransactionErrorType.TRANSACTION_ERROR;
-          throw error;
-        }
-
         const confirmation = await connection.confirmTransaction({
           signature: txId,
           blockhash: blockhash,
@@ -171,7 +164,7 @@ export class SolanaService {
           error: error instanceof Error ? error : new Error('Payment failed'),
           context: { 
             action: 'process_payment',
-            wallet: getWalletAddress(wallet),
+            wallet: getWalletAddressSafe(wallet),
             error: error instanceof Error ? error.message : 'Unknown error'
           }
         });
@@ -203,7 +196,7 @@ export class SolanaService {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          wallet: getWalletAddress(wallet),
+          wallet: getWalletAddressSafe(wallet),
           name,
           description,
           imageUrl,
@@ -217,41 +210,10 @@ export class SolanaService {
         throw new Error(`Server error: ${error.error || 'Failed to generate transaction'}`);
       }
 
-      const { transaction: serializedTx, mint } = await response.json();
-
-      if (!serializedTx || typeof serializedTx !== 'string') {
-        throw new Error('Ungültige Transaktion erhalten');
-      }
+      const { mint } = await response.json();
 
       if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
         throw new Error('Invalid mint address received');
-      }
-      
-      const connection = await this.getConnection();
-      const transaction = Transaction.from(Buffer.from(serializedTx, 'base64'));
-      
-      const signature = await wallet.sendTransaction(transaction, connection);
-      
-      if (!signature || typeof signature !== 'string') {
-        const error = new Error('Transaktion konnte nicht gesendet werden') as TransactionError;
-        error.type = TransactionErrorType.TRANSACTION_ERROR;
-        throw error;
-      }
-
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      this.validateBlockDetails(blockhash, lastValidBlockHeight);
-      
-      const confirmation = await connection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight
-      });
-
-      if (confirmation.value.err) {
-        const error = new Error('NFT minting failed') as TransactionError;
-        error.type = TransactionErrorType.CONFIRMATION_ERROR;
-        error.details = confirmation.value.err;
-        throw error;
       }
 
       return mint;
@@ -261,7 +223,7 @@ export class SolanaService {
         error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
         context: { 
           action: 'mint_nft',
-          wallet: getWalletAddress(wallet),
+          wallet: getWalletAddressSafe(wallet),
           name,
           x,
           y,
@@ -286,5 +248,4 @@ export class SolanaService {
   }
 }
 
-// Export des SolanaService
 export const solanaService = new SolanaService();

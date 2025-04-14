@@ -1,23 +1,21 @@
 import React, { useCallback, useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletButton } from './WalletButton';
 import { Upload, X } from 'lucide-react';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
-import { solanaService } from '../services/solana';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
+import { useMintNft } from '../hooks/useMintNft';
+import { useWalletConnection } from '../hooks/useWalletConnection';
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-const maxFileSize = 10 * 1024 * 1024; // 10MB
-
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
-  const wallet = useWallet();
+  const { wallet, isConnecting, connectionError } = useWalletConnection();
+  const { mintNft } = useMintNft();
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -32,12 +30,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       return false;
     }
 
-    if (!validTypes.includes(file.type)) {
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/gif'].includes(file.type)) {
       setError('Bitte nur JPG, PNG oder GIF-Dateien hochladen');
       return false;
     }
 
-    if (file.size > maxFileSize) {
+    if (file.size > 10 * 1024 * 1024) {
       setError('Dateigröße darf maximal 10MB betragen');
       return false;
     }
@@ -113,13 +111,35 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleUpload = useCallback(async () => {
-    if (!uploadedFile || !selectedPixel || !isWalletConnected(wallet)) return;
+    if (!isWalletConnected(wallet)) {
+      setError('Bitte verbinde dein Wallet und wähle eine Datei aus');
+      return;
+    }
+
+    if (!wallet.publicKey) {
+      setError('Wallet-Adresse konnte nicht gelesen werden');
+      return;
+    }
+
+    // Store wallet address for Supabase RLS
+    localStorage.setItem('wallet', getWalletAddress(wallet));
+
+    if (!uploadedFile || !selectedPixel) {
+      setError('Bitte wähle eine Datei aus und selektiere ein Pixel');
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     try {
       const supabase = await getSupabase();
+      
+      // Verify Supabase headers
+      const walletHeader = localStorage.getItem('wallet');
+      if (!walletHeader) {
+        throw new Error('Wallet-Header fehlt für Supabase');
+      }
       
       const { data: existingPixel, error: fetchError } = await supabase
         .from('pixels')
@@ -136,8 +156,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         setError('Dieses Pixel ist bereits vergeben. Bitte wähle ein anderes.');
         return;
       }
-
-      const paymentTxId = await solanaService.processPayment(wallet);
 
       const fileExt = uploadedFile.name.split('.').pop();
       const fileName = `pixel_${selectedPixel.x}_${selectedPixel.y}.${fileExt}`;
@@ -161,14 +179,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const publicUrl = publicData.data.publicUrl;
       setUploadedImageUrl(publicUrl);
 
-      const nftAddress = await solanaService.mintNFT(
-        wallet,
-        `Trumpillion Pixel (${selectedPixel.x}, ${selectedPixel.y})`,
-        'A piece of the Trumpillion mosaic',
-        publicUrl,
-        selectedPixel.x,
-        selectedPixel.y
-      );
+      const mintAddress = await mintNft(wallet, {
+        name: `Trumpillion Pixel (${selectedPixel.x}, ${selectedPixel.y})`,
+        description: 'A piece of the Trumpillion mosaic',
+        imageUrl: publicUrl,
+        x: selectedPixel.x,
+        y: selectedPixel.y
+      });
 
       const { error: dbError } = await supabase
         .from('pixels')
@@ -176,7 +193,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           x: selectedPixel.x,
           y: selectedPixel.y,
           image_url: publicUrl,
-          nft_url: `https://solscan.io/token/${nftAddress}?cluster=devnet`,
+          nft_url: `https://solscan.io/token/${mintAddress}`,
           owner: getWalletAddress(wallet)
         });
 
@@ -192,7 +209,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         context: { 
           action: 'upload_pixel',
           coordinates: selectedPixel,
-          wallet: getWalletAddress(wallet)
+          wallet: wallet.publicKey?.toBase58() ?? 'undefined',
+          error: error instanceof Error ? error.message : 'Unknown error'
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
@@ -208,7 +226,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     } finally {
       setLoading(false);
     }
-  }, [uploadedFile, selectedPixel, wallet, onClose, uploadedImageUrl]);
+  }, [uploadedFile, selectedPixel, wallet, onClose, uploadedImageUrl, mintNft]);
 
   if (!isOpen) return null;
 
@@ -228,7 +246,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
         {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
-            <p className="text-gray-300 mb-4">Verbinde dein Wallet um fortzufahren</p>
+            <p className="text-gray-300 mb-4">
+              {isConnecting ? 'Verbinde Wallet...' : 'Verbinde dein Wallet um fortzufahren'}
+            </p>
+            {connectionError && (
+              <p className="text-red-500 text-sm mb-4">{connectionError}</p>
+            )}
             <WalletButton />
           </div>
         ) : (
@@ -245,7 +268,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
                 type="file"
                 id="fileInput"
                 className="hidden"
-                accept={validTypes.join(',')}
+                accept="image/jpeg,image/jpg,image/png,image/gif"
                 onChange={handleFileChange}
               />
               <Upload className="mx-auto mb-4 text-gray-400" size={32} />

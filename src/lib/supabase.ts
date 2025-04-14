@@ -65,7 +65,9 @@ export const getSupabase = async () => {
           global: {
             headers: {
               'Accept': 'application/json',
-              'x-application-name': 'trumpillion'
+              'Content-Type': 'application/json',
+              'x-application-name': 'trumpillion',
+              'wallet': typeof window !== 'undefined' ? localStorage.getItem('wallet') || '' : ''
             }
           },
           realtime: {
@@ -84,10 +86,6 @@ export const getSupabase = async () => {
 
         if (error && error.code !== 'PGRST116') {
           throw error;
-        }
-
-        if (!data && !error) {
-          console.warn('Warnung: Keine settings/main_image Daten gefunden');
         }
 
         console.log('✅ Supabase connection successful');

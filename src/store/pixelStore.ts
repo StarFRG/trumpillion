@@ -93,7 +93,11 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             image_url: pixel.imageUrl,
             owner: pixel.owner,
             nft_url: pixel.nftUrl
-          });
+          }, {
+            onConflict: 'x,y'
+          })
+          .select()
+          .throwOnError();
 
         if (error) throw error;
 
@@ -125,11 +129,15 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           const supabase = await getSupabase();
           const { data, error } = await supabase
             .from('pixels')
-            .select('*')
+            .select('*', {
+              head: false,
+              count: 'exact'
+            })
             .gte('x', startCol)
             .lte('x', endCol)
             .gte('y', startRow)
-            .lte('y', endRow);
+            .lte('y', endRow)
+            .throwOnError();
 
           if (error) throw error;
 
@@ -196,10 +204,14 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         const supabase = await getSupabase();
         const { data: lastPixel } = await supabase
           .from('pixels')
-          .select('x, y')
+          .select('x, y', {
+            head: false,
+            count: 'exact'
+          })
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .single()
+          .throwOnError();
 
         // Start from center if no pixels exist
         if (!lastPixel) {
@@ -213,9 +225,13 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         // Get all pixels in search area
         const { data: existingPixels } = await supabase
           .from('pixels')
-          .select('x, y')
+          .select('x, y', {
+            head: false,
+            count: 'exact'
+          })
           .in('x', xRange)
-          .in('y', yRange);
+          .in('y', yRange)
+          .throwOnError();
 
         // Create set of taken coordinates
         const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
@@ -233,9 +249,13 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
           const { data: pixels } = await supabase
             .from('pixels')
-            .select('x, y')
+            .select('x, y', {
+              head: false,
+              count: 'exact'
+            })
             .or(`x.eq.${lastPixel.x - radius},x.eq.${lastPixel.x + radius}`)
-            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`);
+            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`)
+            .throwOnError();
 
           const takenExpanded = new Set(pixels?.map(p => `${p.x},${p.y}`));
 

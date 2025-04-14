@@ -15,7 +15,17 @@
       style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
       img-src 'self' https: data: blob:;
       font-src 'self' https://fonts.gstatic.com;
-      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mainnet-beta.solana.com https://*.solana-mainnet.quiknode.pro wss://*.solana-mainnet.quiknode.pro https://o4509111588225024.ingest.de.sentry.io /.netlify/functions/*;
+      connect-src 'self' 
+        https://*.supabase.co 
+        wss://*.supabase.co 
+        https://api.mainnet-beta.solana.com 
+        https://*.solana-mainnet.quiknode.pro 
+        wss://*.solana-mainnet.quiknode.pro 
+        https://o4509111588225024.ingest.de.sentry.io 
+        https://trumpillion.com/.netlify/functions/get-config 
+        https://trumpillion.com/.netlify/functions/get-supabase-config 
+        https://trumpillion.com/.netlify/functions/mint-nft 
+        https://trumpillion.com/.netlify/functions/supabase-client;
       worker-src 'self' blob:;
       frame-src 'none';
       object-src 'none';

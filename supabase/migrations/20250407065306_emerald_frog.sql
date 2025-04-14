@@ -135,37 +135,51 @@ DO $$
 BEGIN
   DROP POLICY IF EXISTS "Public pixel image access" ON storage.objects;
   DROP POLICY IF EXISTS "Anyone can upload pixel images" ON storage.objects;
-  DROP POLICY IF EXISTS "Anyone can update pixel images" ON storage.objects;
-  DROP POLICY IF EXISTS "Anyone can delete pixel images" ON storage.objects;
+  DROP POLICY IF EXISTS "storage_insert" ON storage.objects;
+  DROP POLICY IF EXISTS "storage_select" ON storage.objects;
+  DROP POLICY IF EXISTS "storage_update" ON storage.objects;
+  DROP POLICY IF EXISTS "storage_delete" ON storage.objects;
 EXCEPTION
   WHEN undefined_table THEN
     NULL;
 END $$;
 
--- Create storage policies
+-- Create essential storage policies
 DO $$
 BEGIN
-  -- Public read access
+  -- Öffentliches Lesen
   CREATE POLICY "Public pixel image access"
     ON storage.objects
     FOR SELECT
     USING (bucket_id = 'pixel-images');
 
-  -- Upload access
+  -- Öffentlicher Upload
   CREATE POLICY "Anyone can upload pixel images"
     ON storage.objects
     FOR INSERT
-    WITH CHECK (bucket_id = 'pixel-images');
+    WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
 
-  -- Update access
-  CREATE POLICY "Anyone can update pixel images"
+  -- Optional: Selektiver Zugriff
+  CREATE POLICY "storage_select"
+    ON storage.objects
+    FOR SELECT
+    USING (bucket_id = 'pixel-images');
+
+  -- Optional: Einfüge-Regel (redundant aber kein Fehler)
+  CREATE POLICY "storage_insert"
+    ON storage.objects
+    FOR INSERT
+    WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
+
+  -- Optional: Update-Regel (z. B. falls Bild ersetzt werden soll)
+  CREATE POLICY "storage_update"
     ON storage.objects
     FOR UPDATE
     USING (bucket_id = 'pixel-images')
-    WITH CHECK (bucket_id = 'pixel-images');
+    WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
 
-  -- Delete access
-  CREATE POLICY "Anyone can delete pixel images"
+  -- Optional: Löschen
+  CREATE POLICY "storage_delete"
     ON storage.objects
     FOR DELETE
     USING (bucket_id = 'pixel-images');

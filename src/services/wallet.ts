@@ -102,7 +102,7 @@ export class WalletValidationService {
         throw new Error('Keine Transaktion angegeben');
       }
 
-      if (!transaction.match(/^[A-HJ-NP-Za-km-z0-9]{43,44}$/)) {
+      if (!transaction.match(/^[A-Za-z0-9+/=]+$/)) {
         throw new Error('Ungültiges Transaktionsformat');
       }
 
@@ -116,4 +116,59 @@ export class WalletValidationService {
       return false;
     }
   }
+
+  static async validateWalletConnection(wallet: WalletContextState): Promise<boolean> {
+    try {
+      if (!isWalletConnected(wallet)) {
+        return false;
+      }
+
+      const pubkey = getWalletPublicKey(wallet);
+      if (!pubkey) return false;
+
+      const connection = await solanaService.getConnection();
+      await connection.getAccountInfo(pubkey);
+
+      return true;
+    } catch (error) {
+      console.error('Wallet-Verbindungsvalidierung fehlgeschlagen:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Wallet-Verbindungsvalidierung fehlgeschlagen'),
+        context: { 
+          action: 'validate_connection',
+          wallet: getWalletAddress(wallet)
+        }
+      });
+      return false;
+    }
+  }
+
+  static async validateWalletPermissions(wallet: WalletContextState): Promise<boolean> {
+    try {
+      if (!isWalletConnected(wallet)) {
+        return false;
+      }
+
+      const pubkey = getWalletPublicKey(wallet);
+      if (!pubkey) return false;
+
+      // Test signing capability
+      const message = new TextEncoder().encode('Test Message');
+      await wallet.signMessage?.(message);
+
+      return true;
+    } catch (error) {
+      console.error('Wallet-Berechtigungsvalidierung fehlgeschlagen:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Wallet-Berechtigungsvalidierung fehlgeschlagen'),
+        context: { 
+          action: 'validate_permissions',
+          wallet: getWalletAddress(wallet)
+        }
+      });
+      return false;
+    }
+  }
 }
+
+export default WalletValidationService;

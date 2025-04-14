@@ -1,6 +1,6 @@
-import type { PublicKey, WalletContextState } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import type { WalletContextState } from '@solana/wallet-adapter-react';
 import { monitoring } from '../services/monitoring';
-import { solanaService } from '../services/solana';
 
 export const WALLET_ERRORS = {
   NOT_CONNECTED: 'Wallet ist nicht verbunden',
@@ -29,17 +29,55 @@ export function getWalletPublicKey(wallet: WalletContextState | null | undefined
   return isWalletConnected(wallet) ? wallet.publicKey : null;
 }
 
-export function getWalletAddress(wallet: WalletContextState | null | undefined): string {
-  const pubkey = getWalletPublicKey(wallet);
-  if (!pubkey) return '';
+export function getWalletAddressSafe(wallet: WalletContextState | null | undefined): string {
   try {
-    return pubkey.toBase58();
+    const pubkey = getWalletPublicKey(wallet);
+    return pubkey?.toString() ?? '';
   } catch (error) {
     monitoring.logError({
-      error: error instanceof Error ? error : new Error('PublicKey toBase58 failed'),
-      context: { action: 'getWalletAddress' }
+      error: error instanceof Error ? error : new Error('Failed to get wallet address'),
+      context: { action: 'get_wallet_address_safe' }
     });
     return '';
+  }
+}
+
+export function getWalletAddress(wallet: WalletContextState | null | undefined): string {
+  const address = getWalletAddressSafe(wallet);
+  if (!address) {
+    throw new Error('Wallet ist nicht verbunden oder hat keine gültige Adresse');
+  }
+  return address;
+}
+
+export function formatWalletAddress(address: string, prefixLength = 4, suffixLength = 4): string {
+  if (!address) {
+    throw new Error('Keine Wallet-Adresse angegeben');
+  }
+  if (address.length <= prefixLength + suffixLength) return address;
+  return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
+}
+
+export function validateWalletTransaction(transaction: string): boolean {
+  if (!transaction) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(transaction);
+}
+
+export function isValidWalletAddress(address: string): boolean {
+  if (!address) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+}
+
+export function safeParseWalletData<T>(data: unknown, fallback: T): T {
+  try {
+    if (!data) return fallback;
+    return data as T;
+  } catch (error) {
+    monitoring.logError({
+      error: error instanceof Error ? error : new Error('Failed to parse wallet data'),
+      context: { action: 'parse_wallet_data' }
+    });
+    return fallback;
   }
 }
 
@@ -88,57 +126,5 @@ export function withWalletErrorBoundary<T>(operation: () => T, fallback: T): T {
       context: { action: 'wallet_operation' }
     });
     return fallback;
-  }
-}
-
-export function formatWalletAddress(address: string, prefixLength = 4, suffixLength = 4): string {
-  if (!address) return '';
-  if (address.length <= prefixLength + suffixLength) return address;
-  return `${address.slice(0, prefixLength)}...${address.slice(-suffixLength)}`;
-}
-
-export function validateWalletTransaction(transaction: string): boolean {
-  if (!transaction) return false;
-  return /^[A-Za-z0-9+/=]+$/.test(transaction);
-}
-
-export function isValidWalletAddress(address: string): boolean {
-  if (!address) return false;
-  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-}
-
-export function safeParseWalletData<T>(data: unknown, fallback: T): T {
-  try {
-    if (!data) return fallback;
-    return data as T;
-  } catch {
-    return fallback;
-  }
-}
-
-export async function validateWalletBalance(
-  wallet: WalletContextState,
-  requiredBalance: number
-): Promise<boolean> {
-  if (!isWalletConnected(wallet)) return false;
-
-  try {
-    const connection = await solanaService.getConnection();
-    const pubkey = getWalletPublicKey(wallet);
-
-    if (!connection || !pubkey) return false;
-
-    const balance = await connection.getBalance(pubkey);
-    return balance >= requiredBalance;
-  } catch (error) {
-    monitoring.logError({
-      error: error instanceof Error ? error : new Error('Balance check failed'),
-      context: {
-        action: 'validate_balance',
-        wallet: getWalletAddress(wallet),
-        requiredBalance
-      }
-    });
-    return false;
   }
 }

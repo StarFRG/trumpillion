@@ -1,5 +1,6 @@
 export interface MintNftParams {
   wallet: string;
+  reference: string; // New field for payment reference
   name: string;
   description: string;
   imageUrl: string;
