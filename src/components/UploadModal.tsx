@@ -1,12 +1,13 @@
 import React, { useCallback, useState } from 'react';
 import { WalletButton } from './WalletButton';
-import { Upload, X } from 'lucide-react';
+import { X, Upload } from 'lucide-react';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 import { useMintNft } from '../hooks/useMintNft';
 import { useWalletConnection } from '../hooks/useWalletConnection';
+import { validateFile } from '../utils/validation';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -16,37 +17,16 @@ interface UploadModalProps {
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
   const { wallet, isConnecting, connectionError } = useWalletConnection();
   const { mintNft } = useMintNft();
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const { selectedPixel, findAvailablePixel } = usePixelStore();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { selectedPixel } = usePixelStore();
-
-  const validateFile = (file: File): boolean => {
-    if (!file) {
-      setError('Keine Datei ausgewählt');
-      return false;
-    }
-
-    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/gif'].includes(file.type)) {
-      setError('Bitte nur JPG, PNG oder GIF-Dateien hochladen');
-      return false;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setError('Dateigröße darf maximal 10MB betragen');
-      return false;
-    }
-
-    if (file.size === 0) {
-      setError('Die Datei ist leer');
-      return false;
-    }
-
-    return true;
-  };
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [coordinates, setCoordinates] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -58,38 +38,85 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setIsDragging(false);
   }, []);
 
+  const handleFileSelect = useCallback((file: File) => {
+    try {
+      validateFile(file);
+      
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      
+      const newPreviewUrl = URL.createObjectURL(file);
+      setPreviewUrl(newPreviewUrl);
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Invalid file');
+      return false;
+    }
+  }, [previewUrl]);
+
+  const handleUpload = useCallback(async (file: File) => {
+    if (!isWalletConnected(wallet)) {
+      setError('Wallet ist nicht verbunden');
+      return;
+    }
+
+    try {
+      validateFile(file);
+      setLoading(true);
+      setError(null);
+
+      const supabase = await getSupabase();
+      const fileExt = file.name.split('.').pop();
+      const fileName = `pixel_${coordinates?.x || 0}_${coordinates?.y || 0}.${fileExt}`;
+
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from('pixel-images')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (storageError) throw storageError;
+
+      const { data: publicData } = supabase.storage
+        .from('pixel-images')
+        .getPublicUrl(fileName);
+
+      if (!publicData?.publicUrl) {
+        throw new Error('Failed to get public URL');
+      }
+
+      setUploadedImageUrl(publicData.publicUrl);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Upload failed'),
+        context: { action: 'upload_image' }
+      });
+      setError(error instanceof Error ? error.message : 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet, coordinates]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    setError(null);
-    
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) {
-      setError('Keine Datei erkannt');
-      return;
+    const file = e.dataTransfer.files[0];
+    if (file && handleFileSelect(file)) {
+      handleUpload(file);
     }
-
-    if (validateFile(file)) {
-      setUploadedFile(file);
-    }
-  }, []);
+  }, [handleFileSelect, handleUpload]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    setError(null);
-    
-    if (!file) {
-      setError('Bitte wähle eine Datei aus');
-      return;
+    if (file && handleFileSelect(file)) {
+      handleUpload(file);
     }
+  }, [handleFileSelect, handleUpload]);
 
-    if (validateFile(file)) {
-      setUploadedFile(file);
-      e.target.value = ''; // Reset input for future uploads
-    }
-  }, []);
-
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
     if (uploadedImageUrl) {
       const fileName = uploadedImageUrl.split('/').pop();
       if (fileName) {
@@ -105,12 +132,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       }
     }
     setUploadedImageUrl(null);
-    setUploadedFile(null);
-    setError(null);
+    setTitle('');
+    setDescription('');
+    setCoordinates(null);
+    setPreviewUrl(null);
     onClose();
-  };
+  }, [uploadedImageUrl, onClose]);
 
-  const handleUpload = useCallback(async () => {
+  const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
       setError('Bitte verbinde dein Wallet und wähle eine Datei aus');
       return;
@@ -121,11 +150,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       return;
     }
 
-    // Store wallet address for Supabase RLS
-    localStorage.setItem('wallet', getWalletAddress(wallet));
-
-    if (!uploadedFile || !selectedPixel) {
+    if (!uploadedImageUrl || !coordinates) {
       setError('Bitte wähle eine Datei aus und selektiere ein Pixel');
+      return;
+    }
+
+    if (!title || !description) {
+      setError('Bitte fülle alle Felder aus');
       return;
     }
 
@@ -133,100 +164,75 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setError(null);
 
     try {
-      const supabase = await getSupabase();
-      
-      // Verify Supabase headers
-      const walletHeader = localStorage.getItem('wallet');
-      if (!walletHeader) {
-        throw new Error('Wallet-Header fehlt für Supabase');
-      }
-      
-      const { data: existingPixel, error: fetchError } = await supabase
-        .from('pixels')
-        .select('x, y')
-        .eq('x', selectedPixel.x)
-        .eq('y', selectedPixel.y)
-        .single();
-
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        throw new Error('Fehler beim Prüfen des Pixels');
-      }
-
-      if (existingPixel) {
-        setError('Dieses Pixel ist bereits vergeben. Bitte wähle ein anderes.');
-        return;
-      }
-
-      const fileExt = uploadedFile.name.split('.').pop();
-      const fileName = `pixel_${selectedPixel.x}_${selectedPixel.y}.${fileExt}`;
-      const { data: storageData, error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, uploadedFile, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (storageError) throw storageError;
-
-      const publicData = supabase.storage
-        .from('pixel-images')
-        .getPublicUrl(fileName);
-
-      if (!publicData?.data?.publicUrl) {
-        throw new Error('Public URL konnte nicht generiert werden');
-      }
-
-      const publicUrl = publicData.data.publicUrl;
-      setUploadedImageUrl(publicUrl);
-
       const mintAddress = await mintNft(wallet, {
-        name: `Trumpillion Pixel (${selectedPixel.x}, ${selectedPixel.y})`,
-        description: 'A piece of the Trumpillion mosaic',
-        imageUrl: publicUrl,
-        x: selectedPixel.x,
-        y: selectedPixel.y
+        name: title,
+        description,
+        imageUrl: uploadedImageUrl,
+        x: coordinates.x,
+        y: coordinates.y
       });
 
+      const nftUrl = `https://solscan.io/token/${mintAddress}`;
+
+      const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
-          x: selectedPixel.x,
-          y: selectedPixel.y,
-          image_url: publicUrl,
-          nft_url: `https://solscan.io/token/${mintAddress}`,
+          x: coordinates.x,
+          y: coordinates.y,
+          image_url: uploadedImageUrl,
+          nft_url: nftUrl,
           owner: getWalletAddress(wallet)
         });
 
       if (dbError) throw dbError;
 
       setUploadSuccess(true);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      onClose();
+      setTimeout(() => {
+        handleCancel();
+      }, 2000);
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('Error:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Upload failed'),
+        error: error instanceof Error ? error : new Error('Failed to mint NFT'),
         context: { 
-          action: 'upload_pixel',
-          coordinates: selectedPixel,
-          wallet: wallet.publicKey?.toBase58() ?? 'undefined',
-          error: error instanceof Error ? error.message : 'Unknown error'
+          action: 'mint_nft',
+          coordinates,
+          wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
-      
-      if (uploadedImageUrl) {
-        const fileName = uploadedImageUrl.split('/').pop();
-        if (fileName) {
-          const supabase = await getSupabase();
-          await supabase.storage.from('pixel-images').remove([fileName]);
-        }
-        setUploadedImageUrl(null);
-      }
+      setError(error instanceof Error ? error.message : 'Ein Fehler ist aufgetreten');
     } finally {
       setLoading(false);
     }
-  }, [uploadedFile, selectedPixel, wallet, onClose, uploadedImageUrl, mintNft]);
+  }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, mintNft]);
+
+  React.useEffect(() => {
+    if (isOpen && !coordinates) {
+      const initCoordinates = async () => {
+        try {
+          if (selectedPixel) {
+            setCoordinates(selectedPixel);
+          } else {
+            const availablePixel = await findAvailablePixel();
+            if (availablePixel) {
+              setCoordinates(availablePixel);
+            } else {
+              setError('Keine freien Pixel verfügbar');
+            }
+          }
+        } catch (error) {
+          setError('Fehler beim Laden der Koordinaten');
+          monitoring.logError({
+            error: error instanceof Error ? error : new Error('Failed to initialize coordinates'),
+            context: { action: 'init_coordinates' }
+          });
+        }
+      };
+
+      initCoordinates();
+    }
+  }, [isOpen, coordinates, selectedPixel, findAvailablePixel]);
 
   if (!isOpen) return null;
 
@@ -235,7 +241,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={handleCancel} />
       <div className="relative bg-gray-900 rounded-xl shadow-xl p-6 w-[400px] max-w-[90vw] z-[60]">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold">Bild hochladen</h3>
+          <h3 className="text-xl font-bold">Create Your Trump Moment</h3>
           <button 
             onClick={handleCancel}
             className="text-gray-400 hover:text-white transition-colors"
@@ -255,9 +261,34 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             <WalletButton />
           </div>
         ) : (
-          <>
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Name Your Moment
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="Make it memorable - use your name or a catchy title"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Tell Your Story
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500 h-24 resize-none"
+                placeholder="Share why this moment matters to you. What does Trump mean to you? Make it personal!"
+              />
+            </div>
+
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-6
+              className={`relative border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors overflow-hidden min-h-[200px]
                 ${isDragging ? 'border-red-500 bg-red-500/10' : 'border-gray-700 hover:border-red-500'}`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -271,40 +302,59 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
                 accept="image/jpeg,image/jpg,image/png,image/gif"
                 onChange={handleFileChange}
               />
-              <Upload className="mx-auto mb-4 text-gray-400" size={32} />
-              <p className="text-gray-300">
-                {uploadedFile 
-                  ? uploadedFile.name
-                  : 'Ziehe dein Bild hierher oder klicke zum Auswählen'
-                }
-              </p>
-              <p className="text-sm text-gray-500 mt-2">
-                Unterstützt JPG, PNG und GIF • Max 10MB
-              </p>
+              
+              {previewUrl ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <img 
+                    src={previewUrl} 
+                    alt="Preview" 
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                    <p className="text-white text-sm">Click to choose another image</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <Upload className="mb-4 text-gray-400" size={32} />
+                  <p className="text-gray-300 mb-2">
+                    Drag and drop your image here, or click to browse
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Supports JPG, PNG and GIF • Max 10MB
+                  </p>
+                </div>
+              )}
+
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
             </div>
 
-            {selectedPixel && (
-              <div className="mb-6 p-4 bg-gray-800 rounded-lg">
-                <p className="text-sm text-gray-400">Ausgewähltes Pixel</p>
+            {coordinates && (
+              <div className="p-4 bg-gray-800 rounded-lg">
+                <p className="text-sm text-gray-400">Your Pixel Location</p>
                 <p className="font-mono text-white">
-                  ({selectedPixel.x}, {selectedPixel.y})
+                  ({coordinates.x}, {coordinates.y})
                 </p>
-                <p className="text-sm text-gray-400 mt-2">Preis</p>
-                <p className="font-mono text-white">1 SOL</p>
+                <p className="text-sm text-gray-400 mt-2">Investment</p>
+                <p className="font-mono text-white">1 SOL - Own a piece of history</p>
               </div>
             )}
 
             {error && (
-              <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg text-red-500">
+              <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg text-red-500">
                 {error}
               </div>
             )}
 
             <button
-              onClick={handleUpload}
-              disabled={!uploadedFile || loading}
+              onClick={handleMint}
+              disabled={!uploadedImageUrl || loading || !title || !description || !coordinates}
               className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2
-                ${uploadedFile && !loading
+                ${uploadedImageUrl && !loading && title && description && coordinates
                   ? 'bg-red-500 hover:bg-red-600 text-white'
                   : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                 }`}
@@ -312,15 +362,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
               {loading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  Verarbeite...
+                  Creating your moment...
                 </>
               ) : uploadSuccess ? (
-                'Erfolgreich!'
+                'Success! Your moment is now part of history!'
               ) : (
-                'NFT erstellen (1 SOL)'
+                'Mint Your Trump Moment (1 SOL)'
               )}
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>

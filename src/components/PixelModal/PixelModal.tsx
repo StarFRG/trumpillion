@@ -5,8 +5,8 @@ import { getSupabase } from '../../lib/supabase';
 import { monitoring } from '../../services/monitoring';
 import { getWalletAddress, isWalletConnected } from '../../utils/walletUtils';
 import { useMintNft } from '../../hooks/useMintNft';
-import { PixelForm } from '../PixelForm/PixelForm';
-import { X } from 'lucide-react';
+import { validateFile } from '../../utils/validation';
+import { X, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ShareModal } from '../ShareModal';
 
@@ -32,6 +32,8 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [nftUrl, setNftUrl] = useState<string | null>(null);
   const [selectedCoordinates, setSelectedCoordinates] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !wallet?.connected || !wallet.publicKey) return;
@@ -42,9 +44,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     const initializePixel = async () => {
       try {
         if (pixel) {
-          // Store wallet address for Supabase RLS
-          localStorage.setItem('wallet', getWalletAddress(wallet));
-          
           const supabase = await getSupabase();
           const { data: existingPixel } = await supabase
             .from('pixels')
@@ -85,14 +84,98 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     initializePixel();
   }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
 
-  const handleUploadSuccess = useCallback((imageUrl: string) => {
-    setUploadedImageUrl(imageUrl);
-    setError(null);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
   }, []);
 
-  const handleUploadError = useCallback((errorMessage: string) => {
-    setError(errorMessage);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
   }, []);
+
+  const handleFileSelect = useCallback((file: File) => {
+    try {
+      validateFile(file);
+      
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      
+      const newPreviewUrl = URL.createObjectURL(file);
+      setPreviewUrl(newPreviewUrl);
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Invalid file');
+      return false;
+    }
+  }, [previewUrl]);
+
+  const handleUpload = useCallback(async (file: File) => {
+    if (!isWalletConnected(wallet)) {
+      setError('Wallet ist nicht verbunden');
+      return;
+    }
+
+    if (!selectedCoordinates) {
+      setError('No coordinates selected');
+      return;
+    }
+
+    try {
+      validateFile(file);
+      setLoading(true);
+      setError(null);
+
+      const supabase = await getSupabase();
+      const fileExt = file.name.split('.').pop();
+      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
+
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from('pixel-images')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (storageError) throw storageError;
+
+      const { data: publicData } = supabase.storage
+        .from('pixel-images')
+        .getPublicUrl(fileName);
+
+      if (!publicData?.publicUrl) {
+        throw new Error('Failed to get public URL');
+      }
+
+      setUploadedImageUrl(publicData.publicUrl);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Upload failed'),
+        context: { action: 'upload_image' }
+      });
+      setError(error instanceof Error ? error.message : 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet, selectedCoordinates]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && handleFileSelect(file)) {
+      handleUpload(file);
+    }
+  }, [handleFileSelect, handleUpload]);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && handleFileSelect(file)) {
+      handleUpload(file);
+    }
+  }, [handleFileSelect, handleUpload]);
 
   const handleCancel = useCallback(async () => {
     if (uploadedImageUrl) {
@@ -119,6 +202,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setShowShareDialog(false);
     setNftUrl(null);
     setSelectedCoordinates(null);
+    setPreviewUrl(null);
     onClose();
   }, [uploadedImageUrl, onClose, wallet]);
 
@@ -132,9 +216,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setError(t('wallet.error.noAddress'));
       return;
     }
-
-    // Store wallet address for Supabase RLS
-    localStorage.setItem('wallet', getWalletAddress(wallet));
 
     if (!uploadedImageUrl || !selectedCoordinates) {
       setError(t('pixel.upload.error.noFile'));
@@ -163,12 +244,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const supabase = await getSupabase();
       
-      // Verify Supabase headers
-      const walletHeader = localStorage.getItem('wallet');
-      if (!walletHeader) {
-        throw new Error('Wallet-Header fehlt für Supabase');
-      }
-
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -195,20 +270,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         context: { 
           action: 'mint_nft',
           coordinates: selectedCoordinates,
-          wallet: wallet.publicKey?.toBase58() ?? 'undefined',
-          error: error instanceof Error ? error.message : 'Unknown error'
+          wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : t('common.error'));
-      
-      if (uploadedImageUrl) {
-        const fileName = uploadedImageUrl.split('/').pop();
-        if (fileName) {
-          const supabase = await getSupabase();
-          await supabase.storage.from('pixel-images').remove([fileName]);
-        }
-        setUploadedImageUrl(null);
-      }
     } finally {
       setLoading(false);
     }
@@ -285,13 +350,51 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
               />
             </div>
 
-            {selectedCoordinates && (
-              <PixelForm
-                coordinates={selectedCoordinates}
-                onSuccess={handleUploadSuccess}
-                onError={handleUploadError}
+            <div
+              className={`relative border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors overflow-hidden min-h-[200px]
+                ${isDragging ? 'border-red-500 bg-red-500/10' : 'border-gray-700 hover:border-red-500'}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById('fileInput')?.click()}
+            >
+              <input
+                type="file"
+                id="fileInput"
+                className="hidden"
+                accept="image/jpeg,image/jpg,image/png,image/gif"
+                onChange={handleFileChange}
               />
-            )}
+              
+              {previewUrl ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <img 
+                    src={previewUrl} 
+                    alt="Preview" 
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                    <p className="text-white text-sm">Click to choose another image</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <Upload className="mb-4 text-gray-400" size={32} />
+                  <p className="text-gray-300 mb-2">
+                    Drag and drop your image here, or click to browse
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Supports JPG, PNG and GIF • Max 10MB
+                  </p>
+                </div>
+              )}
+
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                  <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
 
             {selectedCoordinates && (
               <div className="p-4 bg-gray-800 rounded-lg">
