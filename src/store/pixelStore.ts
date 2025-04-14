@@ -202,36 +202,32 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     findAvailablePixel: async () => {
       try {
         const supabase = await getSupabase();
-        const { data: lastPixel } = await supabase
+        const { data, error } = await supabase
           .from('pixels')
-          .select('x, y', {
-            head: false,
-            count: 'exact'
-          })
+          .select('x, y', { head: false })
           .order('created_at', { ascending: false })
-          .limit(1)
-          .single()
-          .throwOnError();
+          .limit(1);
+
+        if (error) throw error;
 
         // Start from center if no pixels exist
-        if (!lastPixel) {
+        if (!data?.length) {
           return { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) };
         }
 
+        const lastPixel = data[0];
         const searchRadius = 10;
         const xRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.x - searchRadius + i);
         const yRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.y - searchRadius + i);
 
         // Get all pixels in search area
-        const { data: existingPixels } = await supabase
+        const { data: existingPixels, error: searchError } = await supabase
           .from('pixels')
-          .select('x, y', {
-            head: false,
-            count: 'exact'
-          })
+          .select('x, y', { head: false })
           .in('x', xRange)
-          .in('y', yRange)
-          .throwOnError();
+          .in('y', yRange);
+
+        if (searchError) throw searchError;
 
         // Create set of taken coordinates
         const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
@@ -247,15 +243,13 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
         // If no pixel found in search area, expand search
         for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
-          const { data: pixels } = await supabase
+          const { data: pixels, error: expandedSearchError } = await supabase
             .from('pixels')
-            .select('x, y', {
-              head: false,
-              count: 'exact'
-            })
+            .select('x, y', { head: false })
             .or(`x.eq.${lastPixel.x - radius},x.eq.${lastPixel.x + radius}`)
-            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`)
-            .throwOnError();
+            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`);
+
+          if (expandedSearchError) throw expandedSearchError;
 
           const takenExpanded = new Set(pixels?.map(p => `${p.x},${p.y}`));
 
