@@ -74,20 +74,29 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const supabase = await getSupabase();
 
       // Check if pixel is already taken
-      const { data: existingPixels, error: checkError } = await supabase
+      const { data: existingPixel, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', coordinates.x)
         .eq('y', coordinates.y)
-        .limit(1);
+        .maybeSingle();
 
       if (checkError) throw checkError;
-      if (existingPixels && existingPixels.length > 0) {
+      if (existingPixel?.owner) {
         throw new Error('This pixel is already owned');
       }
 
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
+
+      // Check for and remove existing file
+      const { data: existingFiles } = await supabase.storage
+        .from('pixel-images')
+        .list('', { search: fileName });
+
+      if (existingFiles?.length) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
@@ -186,15 +195,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const supabase = await getSupabase();
       
       // Check if pixel is still available
-      const { data: existingPixels, error: checkError } = await supabase
+      const { data: existingPixel, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', coordinates.x)
         .eq('y', coordinates.y)
-        .limit(1);
+        .maybeSingle();
 
       if (checkError) throw checkError;
-      if (existingPixels && existingPixels.length > 0) {
+      if (existingPixel?.owner) {
         throw new Error('This pixel has been taken');
       }
 
@@ -207,7 +216,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       });
 
       const nftUrl = `https://solscan.io/token/${mintAddress}`;
-      
+
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -247,15 +256,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           if (selectedPixel) {
             // Check if pixel is already taken
             const supabase = await getSupabase();
-            const { data: existingPixels, error: checkError } = await supabase
+            const { data: existingPixel, error: checkError } = await supabase
               .from('pixels')
               .select('owner')
               .eq('x', selectedPixel.x)
               .eq('y', selectedPixel.y)
-              .limit(1);
+              .maybeSingle();
 
             if (checkError) throw checkError;
-            if (existingPixels && existingPixels.length > 0) {
+            if (existingPixel?.owner) {
               throw new Error('Selected pixel is already owned');
             }
 

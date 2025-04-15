@@ -1,20 +1,20 @@
 import { useState, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { getSupabase } from '../../lib/supabase';
-import { validateFile } from '../../utils/validation';
-import { monitoring } from '../../services/monitoring';
-import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
+import { getSupabase } from '../lib/supabase';
+import { validateFile } from '../utils/validation';
+import { monitoring } from '../services/monitoring';
+import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 
 export const usePixelModalLogic = (onClose: () => void) => {
+  const { wallet } = useWallet();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const wallet = useWallet();
 
   const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
     try {
       if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet ist nicht verbunden oder ungültig');
+        throw new Error('Wallet is not connected');
       }
 
       validateFile(file);
@@ -24,20 +24,21 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const supabase = await getSupabase();
       
       // Check if pixel is already taken
-      const { data: existingPixel } = await supabase
+      const { data: existingPixel, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', coordinates.x)
         .eq('y', coordinates.y)
-        .single();
+        .maybeSingle();
 
+      if (checkError) throw checkError;
       if (existingPixel?.owner) {
         throw new Error('This pixel is already owned');
       }
 
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
-        throw new Error('Dateiendung konnte nicht ermittelt werden');
+        throw new Error('Could not determine file extension');
       }
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
@@ -65,7 +66,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Öffentliche URL konnte nicht generiert werden');
+        throw new Error('Failed to generate public URL');
       }
 
       const publicUrl = publicData.publicUrl;

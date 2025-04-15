@@ -19,6 +19,8 @@ interface PixelGridState {
 }
 
 const GRID_SIZE = 1000;
+const LOAD_RETRY_ATTEMPTS = 3;
+const LOAD_RETRY_DELAY = 2000;
 
 export const usePixelStore = create<PixelGridState>()((set, get) => {
   let realtimeSubscription: any = null;
@@ -89,9 +91,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           .select('owner')
           .eq('x', pixel.x)
           .eq('y', pixel.y)
-          .single();
+          .maybeSingle();
 
-        if (checkError && checkError.code !== 'PGRST116') throw checkError;
+        if (checkError) throw checkError;
         if (existingPixel?.owner) {
           throw new Error('Pixel is already owned');
         }
@@ -125,53 +127,67 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         throw new Error('Invalid coordinate range');
       }
 
-      try {
-        set({ loading: true, error: null });
+      let attempts = 0;
+      let lastError: Error | null = null;
 
-        const supabase = await getSupabase();
-        const { data, error } = await supabase
-          .from('pixels')
-          .select('*')
-          .gte('x', startCol)
-          .lte('x', endCol)
-          .gte('y', startRow)
-          .lte('y', endRow);
+      while (attempts < LOAD_RETRY_ATTEMPTS) {
+        try {
+          set({ loading: true, error: null });
 
-        if (error) throw error;
+          const supabase = await getSupabase();
+          const { data, error } = await supabase
+            .from('pixels')
+            .select('*')
+            .gte('x', startCol)
+            .lte('x', endCol)
+            .gte('y', startRow)
+            .lte('y', endRow);
 
-        const pixels = get().pixels;
-        
-        // Reset pixels in range
-        for (let y = startRow; y <= endRow; y++) {
-          for (let x = startCol; x <= endCol; x++) {
-            pixels[y][x] = null;
+          if (error) throw error;
+
+          const pixels = get().pixels;
+          
+          // Reset pixels in range
+          for (let y = startRow; y <= endRow; y++) {
+            for (let x = startCol; x <= endCol; x++) {
+              pixels[y][x] = null;
+            }
+          }
+
+          // Update with validated pixels
+          data.forEach((pixel: PixelData) => {
+            if (validatePixel(pixel)) {
+              pixels[pixel.y][pixel.x] = pixel;
+            }
+          });
+
+          set({ pixels: [...pixels], loading: false, error: null });
+          return;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Failed to load pixels');
+          attempts++;
+          
+          if (attempts < LOAD_RETRY_ATTEMPTS) {
+            await new Promise(resolve => setTimeout(resolve, LOAD_RETRY_DELAY * attempts));
           }
         }
-
-        // Update with validated pixels
-        data.forEach((pixel: PixelData) => {
-          if (validatePixel(pixel)) {
-            pixels[pixel.y][pixel.x] = pixel;
-          }
-        });
-
-        set({ pixels: [...pixels], loading: false });
-      } catch (error) {
-        monitoring.logError({
-          error: error instanceof Error ? error : new Error('Failed to load pixels'),
-          context: { 
-            action: 'load_pixels',
-            startRow,
-            startCol,
-            endRow,
-            endCol
-          }
-        });
-        set({ 
-          error: error instanceof Error ? error.message : 'Failed to load pixels',
-          loading: false 
-        });
       }
+
+      monitoring.logError({
+        error: lastError || new Error('Failed to load pixels after multiple attempts'),
+        context: { 
+          action: 'load_pixels',
+          startRow,
+          startCol,
+          endRow,
+          endCol,
+          attempts
+        }
+      });
+      set({ 
+        error: lastError?.message || 'Failed to load pixels after multiple attempts',
+        loading: false 
+      });
     },
 
     getPixelData: (x: number, y: number) => {
@@ -191,9 +207,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           .select('x, y')
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
-        if (lastPixelError && lastPixelError.code !== 'PGRST116') throw lastPixelError;
+        if (lastPixelError) throw lastPixelError;
 
         // Start from center if no pixels exist
         if (!lastPixel) {
@@ -206,7 +222,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             .select('owner')
             .eq('x', centerX)
             .eq('y', centerY)
-            .single();
+            .maybeSingle();
 
           if (!centerPixel) {
             return { x: centerX, y: centerY };
@@ -233,7 +249,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
                 .select('owner')
                 .eq('x', x)
                 .eq('y', y)
-                .single();
+                .maybeSingle();
 
               if (!existingPixel) {
                 return { x, y };

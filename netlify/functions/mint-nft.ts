@@ -12,7 +12,6 @@ if (!rpcUrl?.startsWith('http')) {
 }
 
 const umi = createUmi(rpcUrl).use(irysUploader());
-// Explizit null-signer setzen um client-side signing zu erzwingen
 umi.use(signerIdentity(none()));
 
 const corsHeaders = {
@@ -23,7 +22,6 @@ const corsHeaders = {
 };
 
 export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
-  // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -41,7 +39,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
   }
 
   try {
-    // Safe JSON parsing
     let body;
     try {
       body = JSON.parse(event.body);
@@ -71,35 +68,42 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Validate image URL format
     if (!/^https:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Ungültiges Bildformat oder URL.' })
+        body: JSON.stringify({ error: 'Invalid image format or URL' })
       };
     }
 
     const walletPublicKey = publicKey(wallet);
     const walletBase58 = base58.serialize(walletPublicKey);
 
-    // Pixel-Verfügbarkeit prüfen
-    const { data: existingPixel } = await supabase
+    // Check if pixel is available
+    const { data: existingPixel, error: checkError } = await supabase
       .from('pixels')
-      .select('x, y', { head: false })
+      .select('owner')
       .eq('x', x)
       .eq('y', y)
       .maybeSingle();
 
-    if (existingPixel) {
-      return { 
-        statusCode: 400,
+    if (checkError) {
+      return {
+        statusCode: 500,
         headers: corsHeaders,
-        body: JSON.stringify({ error: `Pixel (${x}, ${y}) ist bereits vergeben.` })
+        body: JSON.stringify({ error: 'Failed to check pixel availability' })
       };
     }
 
-    // Bild validieren & laden mit Timeout
+    if (existingPixel?.owner) {
+      return { 
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: `Pixel (${x}, ${y}) is already owned` })
+      };
+    }
+
+    // Validate & load image with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -123,11 +127,11 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         return { 
           statusCode: 400,
           headers: corsHeaders,
-          body: JSON.stringify({ error: 'Bild ist zu groß (max 10MB).' })
+          body: JSON.stringify({ error: 'Image is too large (max 10MB)' })
         };
       }
 
-      // Metadata vorbereiten
+      // Prepare metadata
       const metadata = {
         name,
         symbol: 'TRUMPILLION',
@@ -144,17 +148,17 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         }
       };
 
-      // Metadata hochladen
+      // Upload metadata
       const uploadResult = await umi.uploader.uploadJson(metadata);
       if (!uploadResult?.uri) {
-        throw new Error('Fehler beim Hochladen der Metadaten (uri fehlt)');
+        throw new Error('Failed to upload metadata (missing uri)');
       }
       const { uri } = uploadResult;
 
-      // Mint erzeugen
+      // Create mint
       const mint = generateSigner(umi);
 
-      // Transaktion vorbereiten
+      // Prepare transaction
       const transaction = createV1(umi, {
         mint,
         name,
@@ -165,12 +169,12 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         creators: [{ address: walletBase58, share: 100, verified: true }]
       }).toTransaction();
 
-      // Transaktion für Client serialisieren
+      // Serialize transaction for client
       const serializedTransaction = transaction.serialize({
         requireAllSignatures: false
       });
 
-      // Sichere Extraktion der Mint-Adresse
+      // Safe extraction of mint address
       const mintAddress = mint?.publicKey?.toBase58?.();
       if (!mintAddress) {
         throw new Error('Mint publicKey is missing or invalid');
@@ -199,7 +203,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       statusCode: 500, 
       headers: corsHeaders,
       body: JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Fehler beim NFT Minting' 
+        error: error instanceof Error ? error.message : 'Error minting NFT' 
       })
     };
   }

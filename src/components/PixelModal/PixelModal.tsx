@@ -9,6 +9,7 @@ import { validateFile } from '../../utils/validation';
 import { X, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ShareModal } from '../ShareModal';
+import { WalletButton } from '../WalletButton';
 
 interface PixelModalProps {
   isOpen: boolean;
@@ -49,20 +50,20 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             setSelectedCoordinates(availablePixel);
             setSelectedPixel(availablePixel);
           } else {
-            throw new Error(t('pixel.error.noFreePixel'));
+            throw new Error('No free pixels available');
           }
         } else if (pixel) {
           const supabase = await getSupabase();
-          const { data: existingPixels, error: checkError } = await supabase
+          const { data: existingPixel, error: checkError } = await supabase
             .from('pixels')
             .select('owner')
             .eq('x', pixel.x)
             .eq('y', pixel.y)
-            .limit(1);
+            .maybeSingle();
 
           if (checkError) throw checkError;
-          if (existingPixels && existingPixels.length > 0) {
-            throw new Error(t('pixel.error.alreadyOwned'));
+          if (existingPixel?.owner) {
+            throw new Error('This pixel is already owned');
           }
 
           setSelectedCoordinates(pixel);
@@ -76,14 +77,14 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             wallet: wallet.publicKey?.toBase58() ?? 'undefined'
           }
         });
-        setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
+        setError(error instanceof Error ? error.message : 'Failed to initialize pixel');
       } finally {
         setLoading(false);
       }
     };
 
     initializePixel();
-  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
+  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -114,7 +115,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) {
-      setError('Wallet ist nicht verbunden');
+      setError('Wallet is not connected');
       return;
     }
 
@@ -131,20 +132,29 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const supabase = await getSupabase();
       
       // Check if pixel is already taken
-      const { data: existingPixels, error: checkError } = await supabase
+      const { data: existingPixel, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', selectedCoordinates.x)
         .eq('y', selectedCoordinates.y)
-        .limit(1);
+        .maybeSingle();
 
       if (checkError) throw checkError;
-      if (existingPixels && existingPixels.length > 0) {
+      if (existingPixel?.owner) {
         throw new Error('This pixel is already owned');
       }
 
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
+
+      // Check for and remove existing file
+      const { data: existingFiles } = await supabase.storage
+        .from('pixel-images')
+        .list('', { search: fileName });
+
+      if (existingFiles?.length) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
@@ -202,11 +212,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         } catch (error) {
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
-            context: { 
-              action: 'cancel_upload', 
-              fileName,
-              wallet: wallet?.publicKey?.toBase58() ?? 'undefined'
-            }
+            context: { action: 'cancel_upload', fileName }
           });
         }
       }
@@ -219,26 +225,26 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setSelectedCoordinates(null);
     setPreviewUrl(null);
     onClose();
-  }, [uploadedImageUrl, onClose, wallet]);
+  }, [uploadedImageUrl, onClose]);
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
-      setError(t('wallet.error.notConnected'));
+      setError('Please connect your wallet');
       return;
     }
 
-    if (!wallet?.publicKey) {
-      setError(t('wallet.error.noAddress'));
+    if (!wallet.publicKey) {
+      setError('Wallet address is missing');
       return;
     }
 
     if (!uploadedImageUrl || !selectedCoordinates) {
-      setError(t('pixel.upload.error.noFile'));
+      setError('Please upload an image and select coordinates');
       return;
     }
 
     if (!title || !description) {
-      setError(t('pixel.error.noDetails'));
+      setError('Please fill in all fields');
       return;
     }
 
@@ -249,15 +255,15 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const supabase = await getSupabase();
       
       // Check if pixel is still available
-      const { data: existingPixels, error: checkError } = await supabase
+      const { data: existingPixel, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', selectedCoordinates.x)
         .eq('y', selectedCoordinates.y)
-        .limit(1);
+        .maybeSingle();
 
       if (checkError) throw checkError;
-      if (existingPixels && existingPixels.length > 0) {
+      if (existingPixel?.owner) {
         throw new Error('This pixel has been taken');
       }
 
@@ -301,11 +307,11 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : t('common.error'));
+      setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft]);
+  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, showShareDialog, mintNft]);
 
   if (!isOpen) return null;
 
@@ -340,16 +346,15 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           </button>
         </div>
 
-        {connectionError && (
-          <div className="p-2 mb-4 bg-red-500/10 text-red-500 rounded">
-            {connectionError}
-          </div>
-        )}
-
-        {isConnecting ? (
+        {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
-            <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-300">Connecting wallet...</p>
+            <p className="text-gray-300 mb-4">
+              {isConnecting ? 'Connecting wallet...' : 'Connect your wallet to continue'}
+            </p>
+            {connectionError && (
+              <p className="text-red-500 text-sm mb-4">{connectionError}</p>
+            )}
+            <WalletButton />
           </div>
         ) : (
           <div className="space-y-6">

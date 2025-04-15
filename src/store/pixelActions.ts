@@ -33,35 +33,38 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
     },
 
     setupRealtimeSubscription: async () => {
-      const supabase = await getSupabase();
-      realtimeSubscription = supabase
-        .channel('pixels')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'pixels'
-          },
-          async (payload) => {
-            const { new: newPixel } = payload;
-            if (!newPixel) return;
+      try {
+        const supabase = await getSupabase();
+        realtimeSubscription = supabase
+          .channel('pixels')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'pixels'
+            },
+            async (payload) => {
+              const { new: newPixel } = payload;
+              if (!newPixel) return;
 
-            const pixels = get().pixels;
-            const { x, y } = newPixel;
+              const pixels = get().pixels;
+              const { x, y } = newPixel;
 
-            if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-              const updatedPixels = pixels.map(row => [...row]);
-              updatedPixels[y][x] = newPixel;
-              set({ pixels: updatedPixels });
+              if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                const updatedPixels = pixels.map(row => [...row]);
+                updatedPixels[y][x] = newPixel;
+                set({ pixels: updatedPixels });
+              }
             }
-          }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('Subscribed to pixel changes');
-          }
+          )
+          .subscribe();
+      } catch (error) {
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error('Failed to setup realtime subscription'),
+          context: { action: 'setup_realtime' }
         });
+      }
     },
 
     setSelectedPixel: (pixel) => {
@@ -71,6 +74,20 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
     updatePixel: async (pixel) => {
       try {
         const supabase = await getSupabase();
+
+        // Check if pixel exists and is not already owned
+        const { data: existingPixel, error: checkError } = await supabase
+          .from('pixels')
+          .select('owner')
+          .eq('x', pixel.x)
+          .eq('y', pixel.y)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existingPixel?.owner) {
+          throw new Error('Pixel is already owned');
+        }
+
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -88,7 +105,6 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
         updatedPixels[pixel.y][pixel.x] = pixel;
         set({ pixels: updatedPixels });
       } catch (error) {
-        console.error('Error updating pixel:', error);
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to update pixel'),
           context: { action: 'update_pixel', pixel }
@@ -131,7 +147,6 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
 
         set({ pixels: updatedPixels, loading: false });
       } catch (error) {
-        console.error('Error loading pixels:', error);
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to load pixels'),
           context: { 
@@ -149,10 +164,9 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
       }
     },
 
-    getPixelData: (x, y) => {
-      const pixels = get().pixels;
+    getPixelData: (x: number, y: number) => {
       if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-        return pixels[y][x];
+        return get().pixels[y][x];
       }
       return null;
     }
