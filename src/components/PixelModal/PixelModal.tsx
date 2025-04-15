@@ -43,21 +43,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
     const initializePixel = async () => {
       try {
-        if (pixel) {
-          const supabase = await getSupabase();
-          const { data: existingPixel } = await supabase
-            .from('pixels')
-            .select('owner')
-            .eq('x', pixel.x)
-            .eq('y', pixel.y)
-            .single();
-
-          if (existingPixel?.owner) {
-            throw new Error(t('pixel.error.alreadyOwned'));
-          }
-
-          setSelectedCoordinates(pixel);
-        } else if (fromButton) {
+        if (fromButton) {
           const availablePixel = await findAvailablePixel();
           if (availablePixel) {
             setSelectedCoordinates(availablePixel);
@@ -65,6 +51,21 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           } else {
             throw new Error(t('pixel.error.noFreePixel'));
           }
+        } else if (pixel) {
+          const supabase = await getSupabase();
+          const { data: existingPixels, error: checkError } = await supabase
+            .from('pixels')
+            .select('owner')
+            .eq('x', pixel.x)
+            .eq('y', pixel.y)
+            .limit(1);
+
+          if (checkError) throw checkError;
+          if (existingPixels && existingPixels.length > 0) {
+            throw new Error(t('pixel.error.alreadyOwned'));
+          }
+
+          setSelectedCoordinates(pixel);
         }
       } catch (error) {
         console.error('Error initializing pixel:', error);
@@ -128,6 +129,20 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setError(null);
 
       const supabase = await getSupabase();
+      
+      // Check if pixel is already taken
+      const { data: existingPixels, error: checkError } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', selectedCoordinates.x)
+        .eq('y', selectedCoordinates.y)
+        .limit(1);
+
+      if (checkError) throw checkError;
+      if (existingPixels && existingPixels.length > 0) {
+        throw new Error('This pixel is already owned');
+      }
+
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
@@ -231,6 +246,21 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setError(null);
 
     try {
+      const supabase = await getSupabase();
+      
+      // Check if pixel is still available
+      const { data: existingPixels, error: checkError } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', selectedCoordinates.x)
+        .eq('y', selectedCoordinates.y)
+        .limit(1);
+
+      if (checkError) throw checkError;
+      if (existingPixels && existingPixels.length > 0) {
+        throw new Error('This pixel has been taken');
+      }
+
       const mintAddress = await mintNft(wallet, {
         name: title,
         description,
@@ -241,8 +271,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const nftUrl = `https://solscan.io/token/${mintAddress}`;
       setNftUrl(nftUrl);
-
-      const supabase = await getSupabase();
       
       const { error: dbError } = await supabase
         .from('pixels')

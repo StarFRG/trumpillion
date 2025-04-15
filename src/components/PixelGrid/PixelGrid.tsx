@@ -3,7 +3,6 @@ import OpenSeadragon from "openseadragon";
 import { usePixelStore } from "../../store/pixelStore";
 import { GRID_WIDTH, GRID_HEIGHT, PIXEL_SIZE, PixelData } from "../../types";
 import { getSupabase } from "../../lib/supabase";
-import PixelModal from "../PixelModal";
 import { ShareModal } from "../ShareModal";
 import { debounce } from "lodash";
 import { ZoomIn, ZoomOut, Home } from "lucide-react";
@@ -31,7 +30,6 @@ const PixelGrid: React.FC = () => {
   const currentZoomLevelRef = useRef<number>(0);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [selectedPixel, setSelectedPixel] = useState<PixelData | null>(null);
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(null);
@@ -91,7 +89,6 @@ const PixelGrid: React.FC = () => {
 
         const imageUrl = data?.value?.url || defaultImage;
         
-        // Only load if URL actually changes
         if (imageUrl !== mainImageUrl) {
           await retryLoadImage(imageUrl);
         }
@@ -118,8 +115,6 @@ const PixelGrid: React.FC = () => {
       if (!viewer || !viewer.isOpen()) return;
 
       const zoom = viewer.viewport.getZoom();
-      
-      // Calculate opacity based on zoom level, starting from MIN_OPACITY (0.5)
       const currentOpacity = MIN_OPACITY + (MAX_OPACITY - MIN_OPACITY) * (zoom / MAX_ZOOM);
 
       document.querySelectorAll('.pixel-overlay').forEach((element) => {
@@ -212,7 +207,6 @@ const PixelGrid: React.FC = () => {
     const coords = getPixelCoordinates(event);
     if (!coords) return;
 
-    // Check if this was a drag rather than a click
     if (dragStartRef.current) {
       const dx = event.position.x - dragStartRef.current.x;
       const dy = event.position.y - dragStartRef.current.y;
@@ -227,11 +221,10 @@ const PixelGrid: React.FC = () => {
 
     const currentTime = Date.now();
     const timeSinceLastClick = currentTime - lastClickTimeRef.current;
-    const isDoubleClick = timeSinceLastClick < 300; // 300ms for double click detection
+    const isDoubleClick = timeSinceLastClick < 300;
     lastClickTimeRef.current = currentTime;
 
     if (isDoubleClick) {
-      // Handle double click zoom
       const zoom = viewer.viewport.getZoom();
       const viewportCoords = viewer.viewport.imageToViewportCoordinates(coords.x, coords.y);
 
@@ -244,7 +237,6 @@ const PixelGrid: React.FC = () => {
         viewer.viewport.goHome();
       }
     } else if (viewer.viewport.getZoom() >= MAX_ZOOM) {
-      // Only open modal at maximum zoom
       const pixelData = getPixelData(coords.x, coords.y);
       const pixel = {
         x: coords.x,
@@ -254,11 +246,9 @@ const PixelGrid: React.FC = () => {
         country: pixelData?.country
       };
 
+      // Only open share modal if pixel has content
       if (pixelData?.imageUrl) {
         setShareModalOpen(true);
-        setSelectedPixel(pixel);
-      } else {
-        setModalOpen(true);
         setSelectedPixel(pixel);
       }
     }
@@ -491,16 +481,6 @@ const PixelGrid: React.FC = () => {
           <Home size={24} />
         </button>
       </div>
-      
-      {modalOpen && selectedPixel && (
-        <PixelModal 
-          isOpen={modalOpen}
-          onClose={() => setModalOpen(false)}
-          pixel={selectedPixel}
-          setSelectedPixel={setSelectedPixel}
-          fromButton={false}
-        />
-      )}
 
       {shareModalOpen && selectedPixel && (
         <ShareModal 
