@@ -66,8 +66,7 @@ export const getSupabase = async () => {
             headers: {
               'Accept': 'application/json',
               'Content-Type': 'application/json',
-              'x-application-name': 'trumpillion',
-              'wallet': typeof window !== 'undefined' ? localStorage.getItem('wallet') || '' : ''
+              'x-application-name': 'trumpillion'
             }
           },
           realtime: {
@@ -77,16 +76,13 @@ export const getSupabase = async () => {
           }
         });
 
-        // Test connection with a simple query
+        // Test connection with a safe query that won't throw 406
         const { data, error } = await client
           .from('settings')
-          .select('value')
-          .eq('key', 'main_image')
-          .single();
+          .select('*')
+          .limit(1);
 
-        if (error && error.code !== 'PGRST116') {
-          throw error;
-        }
+        if (error) throw error;
 
         console.log('✅ Supabase connection successful');
         
@@ -108,8 +104,8 @@ export const getSupabase = async () => {
           throw error;
         }
 
-        console.warn(`Supabase connection attempt ${attempts} failed...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        console.warn(`⚠️ Supabase connection attempt ${attempts} failed, retrying in ${RETRY_DELAY}ms...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempts));
       }
     }
 
