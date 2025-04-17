@@ -101,8 +101,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       .select('x, y')
       .eq('x', x)
       .eq('y', y)
-      .limit(1)
-      .single();
+      .maybeSingle();
 
     if (existingPixel) {
       return { 

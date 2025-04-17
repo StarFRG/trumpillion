@@ -3,12 +3,14 @@ import { PixelData } from '../types';
 import { getSupabase } from '../lib/supabase';
 import { validatePixel, validateCoordinates } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface PixelGridState {
   pixels: PixelData[][];
   selectedPixel: { x: number; y: number } | null;
   loading: boolean;
   error: string | null;
+  realtimeSubscription: RealtimeChannel | null;
   cleanup: () => void;
   setupRealtimeSubscription: () => void;
   setSelectedPixel: (pixel: PixelData | null) => void;
@@ -23,24 +25,38 @@ const LOAD_RETRY_ATTEMPTS = 3;
 const LOAD_RETRY_DELAY = 2000;
 
 export const usePixelStore = create<PixelGridState>()((set, get) => {
-  let realtimeSubscription: any = null;
-
   return {
     pixels: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
     selectedPixel: null,
     loading: false,
     error: null,
+    realtimeSubscription: null,
 
     cleanup: async () => {
-      if (realtimeSubscription) {
-        await realtimeSubscription.unsubscribe();
+      const current = get().realtimeSubscription;
+      if (current) {
+        try {
+          await current.unsubscribe();
+          set({ realtimeSubscription: null });
+        } catch (error) {
+          monitoring.logError({
+            error: error instanceof Error ? error : new Error('Failed to cleanup subscription'),
+            context: { action: 'cleanup_subscription' }
+          });
+        }
       }
     },
 
     setupRealtimeSubscription: async () => {
       try {
+        const existing = get().realtimeSubscription;
+        if (existing) {
+          await existing.unsubscribe();
+          set({ realtimeSubscription: null });
+        }
+
         const supabase = await getSupabase();
-        realtimeSubscription = supabase
+        const subscription = supabase
           .channel('pixels')
           .on(
             'postgres_changes',
@@ -57,13 +73,25 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
               const { x, y } = newPixel;
 
               if (validateCoordinates(x, y)) {
-                const updatedPixels = pixels.map(row => [...row]);
+                const updatedPixels = [...pixels];
+                updatedPixels[y] = [...updatedPixels[y]];
                 updatedPixels[y][x] = newPixel;
                 set({ pixels: updatedPixels });
               }
             }
           )
-          .subscribe();
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Subscribed to pixel changes');
+            } else if (status === 'CHANNEL_ERROR') {
+              monitoring.logError({
+                error: new Error('Realtime subscription error'),
+                context: { action: 'subscription_error', status }
+              });
+            }
+          });
+
+        set({ realtimeSubscription: subscription });
       } catch (error) {
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to setup realtime subscription'),
@@ -192,7 +220,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
       set({ error: errorMessage, loading: false });
     },
 
-    getPixelData: (x: number, y: number) => {
+    getPixelData: (x, y) => {
       if (!validateCoordinates(x, y)) return null;
       
       const pixels = get().pixels;
@@ -217,6 +245,8 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
         const lastPixel = data[0];
         const searchRadius = 10;
+
+        // Generate coordinate ranges for initial search area
         const xRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.x - searchRadius + i);
         const yRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.y - searchRadius + i);
 
@@ -232,7 +262,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         // Create set of taken coordinates
         const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
 
-        // Find first available coordinate
+        // Find first available coordinate in initial search area
         for (const y of yRange) {
           for (const x of xRange) {
             if (validateCoordinates(x, y) && !taken.has(`${x},${y}`)) {
@@ -241,22 +271,23 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           }
         }
 
-        // If no pixel found in search area, expand search
+        // If no pixel found in initial area, expand search
         for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
+          const xRange = Array.from({ length: radius * 2 + 1 }, (_, i) => lastPixel.x - radius + i);
+          const yRange = Array.from({ length: radius * 2 + 1 }, (_, i) => lastPixel.y - radius + i);
+
           const { data: pixels, error: expandedSearchError } = await supabase
             .from('pixels')
             .select('x, y', { head: false })
-            .or(`x.eq.${lastPixel.x - radius},x.eq.${lastPixel.x + radius}`)
-            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`);
+            .in('x', xRange)
+            .in('y', yRange);
 
           if (expandedSearchError) throw expandedSearchError;
 
           const takenExpanded = new Set(pixels?.map(p => `${p.x},${p.y}`));
 
-          for (let dx = -radius; dx <= radius; dx++) {
-            for (let dy = -radius; dy <= radius; dy++) {
-              const x = lastPixel.x + dx;
-              const y = lastPixel.y + dy;
+          for (const y of yRange) {
+            for (const x of xRange) {
               if (validateCoordinates(x, y) && !takenExpanded.has(`${x},${y}`)) {
                 return { x, y };
               }

@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import { PixelData } from '../types';
 import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export interface PixelGridState {
   pixels: PixelData[][];
@@ -18,7 +19,7 @@ export interface PixelGridState {
 
 export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
   const GRID_SIZE = 1000;
-  let realtimeSubscription: any = null;
+  let realtimeSubscription: RealtimeChannel | null = null;
 
   return {
     pixels: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
@@ -28,40 +29,66 @@ export const createPixelActions: StateCreator<PixelGridState> = (set, get) => {
 
     cleanup: async () => {
       if (realtimeSubscription) {
-        await realtimeSubscription.unsubscribe();
+        try {
+          await realtimeSubscription.unsubscribe();
+          realtimeSubscription = null;
+        } catch (error) {
+          monitoring.logError({
+            error: error instanceof Error ? error : new Error('Failed to unsubscribe'),
+            context: { action: 'cleanup_subscription' }
+          });
+        }
       }
     },
 
     setupRealtimeSubscription: async () => {
-      const supabase = await getSupabase();
-      realtimeSubscription = supabase
-        .channel('pixels')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'pixels'
-          },
-          async (payload) => {
-            const { new: newPixel } = payload;
-            if (!newPixel) return;
+      try {
+        // Cleanup existing subscription if any
+        if (realtimeSubscription) {
+          await realtimeSubscription.unsubscribe();
+          realtimeSubscription = null;
+        }
 
-            const pixels = get().pixels;
-            const { x, y } = newPixel;
+        const supabase = await getSupabase();
+        realtimeSubscription = supabase
+          .channel('pixels-updates')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'pixels'
+            },
+            async (payload) => {
+              const { new: newPixel } = payload;
+              if (!newPixel) return;
 
-            if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-              const updatedPixels = pixels.map(row => [...row]);
-              updatedPixels[y][x] = newPixel;
-              set({ pixels: updatedPixels });
+              const pixels = get().pixels;
+              const { x, y } = newPixel;
+
+              if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+                const updatedPixels = pixels.map(row => [...row]);
+                updatedPixels[y][x] = newPixel;
+                set({ pixels: updatedPixels });
+              }
             }
-          }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('Subscribed to pixel changes');
-          }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Subscribed to pixel changes');
+            } else if (status === 'CHANNEL_ERROR') {
+              monitoring.logError({
+                error: new Error('Realtime subscription error'),
+                context: { action: 'subscription_error', status }
+              });
+            }
+          });
+      } catch (error) {
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error('Failed to setup realtime subscription'),
+          context: { action: 'setup_subscription' }
         });
+      }
     },
 
     setSelectedPixel: (pixel) => {

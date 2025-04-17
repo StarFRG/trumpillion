@@ -36,8 +36,34 @@ export const useMintNft = () => {
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Minting fehlgeschlagen');
+        let errMsg = 'Minting fehlgeschlagen';
+        try {
+          const err = await response.json();
+          errMsg = err.error || errMsg;
+
+          monitoring.logError({
+            error: new Error(errMsg),
+            context: {
+              action: 'mint_nft_response_error',
+              responseStatus: response.status,
+              responseBody: err,
+              wallet: getWalletAddressSafe(wallet),
+              params
+            }
+          });
+        } catch {
+          // Fallback wenn response kein valides JSON enthält
+          monitoring.logError({
+            error: new Error('Invalid JSON response'),
+            context: {
+              action: 'mint_nft_parse_error',
+              responseStatus: response.status,
+              wallet: getWalletAddressSafe(wallet),
+              params
+            }
+          });
+        }
+        throw new Error(errMsg);
       }
 
       const { transaction, mint } = await response.json();
@@ -60,6 +86,16 @@ export const useMintNft = () => {
 
       const confirmation = await connection.confirmTransaction(sig, 'confirmed');
       if (confirmation.value.err) {
+        monitoring.logError({
+          error: new Error('Transaction confirmation failed'),
+          context: {
+            action: 'mint_nft_confirmation',
+            signature: sig,
+            error: confirmation.value.err,
+            wallet: getWalletAddressSafe(wallet),
+            params
+          }
+        });
         throw new Error('Transaction failed');
       }
 

@@ -50,7 +50,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             .select('owner')
             .eq('x', pixel.x)
             .eq('y', pixel.y)
-            .single();
+            .maybeSingle();
 
           if (existingPixel?.owner) {
             throw new Error(t('pixel.error.alreadyOwned'));
@@ -63,7 +63,9 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             setSelectedCoordinates(availablePixel);
             setSelectedPixel(availablePixel);
           } else {
-            throw new Error(t('pixel.error.noFreePixel'));
+            setError('Leider sind aktuell keine freien Pixel verfügbar.');
+            onClose();
+            return;
           }
         }
       } catch (error) {
@@ -82,7 +84,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     };
 
     initializePixel();
-  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t]);
+  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t, onClose]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -106,6 +108,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setPreviewUrl(newPreviewUrl);
       return true;
     } catch (error) {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
       setError(error instanceof Error ? error.message : 'Invalid file');
       return false;
     }
@@ -196,6 +202,11 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         }
       }
     }
+
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
     setUploadedImageUrl(null);
     setTitle('');
     setDescription('');
@@ -204,7 +215,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setSelectedCoordinates(null);
     setPreviewUrl(null);
     onClose();
-  }, [uploadedImageUrl, onClose, wallet]);
+  }, [uploadedImageUrl, previewUrl, onClose, wallet]);
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
@@ -226,6 +237,8 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setError(t('pixel.error.noDetails'));
       return;
     }
+
+    if (loading) return; // Verhindert doppelten Aufruf
 
     setLoading(true);
     setError(null);
@@ -254,7 +267,18 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           owner: getWalletAddress(wallet)
         });
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        monitoring.logError({
+          error: dbError,
+          context: {
+            action: 'upsert_pixel',
+            coordinates: selectedCoordinates,
+            wallet: getWalletAddress(wallet),
+            mint_address: mintAddress
+          }
+        });
+        throw dbError;
+      }
 
       setUploadSuccess(true);
       setShowShareDialog(true);
@@ -277,7 +301,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     } finally {
       setLoading(false);
     }
-  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft]);
+  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft, loading]);
 
   if (!isOpen) return null;
 

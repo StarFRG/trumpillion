@@ -29,7 +29,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .select('owner')
         .eq('x', coordinates.x)
         .eq('y', coordinates.y)
-        .single();
+        .maybeSingle();
 
       if (existingPixel?.owner) {
         throw new Error('This pixel is already owned');
@@ -77,7 +77,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         wallet: getWalletAddress(wallet)
       });
 
-      onClose();
+      // onClose() wurde hier entfernt
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -92,7 +92,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
     } finally {
       setUploading(false);
     }
-  }, [wallet, onClose]);
+  }, [wallet]);
 
   return {
     uploading,

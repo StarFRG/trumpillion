@@ -188,50 +188,77 @@ export class SolanaService {
     const pubkey = getWalletPublicKey(wallet);
     if (!pubkey) throw new Error('Wallet nicht verbunden');
 
-    try {
-      const response = await fetch('/.netlify/functions/mint-nft', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          wallet: getWalletAddressSafe(wallet),
-          name,
-          description,
-          imageUrl,
-          x: x || 0,
-          y: y || 0
-        })
-      });
+    return await this.retry(async () => {
+      try {
+        const response = await fetch('/.netlify/functions/mint-nft', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            wallet: getWalletAddressSafe(wallet),
+            name,
+            description,
+            imageUrl,
+            x: x || 0,
+            y: y || 0
+          })
+        });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to get mint transaction' }));
-        throw new Error(`Server error: ${error.error || 'Failed to generate transaction'}`);
-      }
+        if (!response.ok) {
+          let errorMsg = 'Failed to get mint transaction';
+          try {
+            const error = await response.json();
+            errorMsg = error.error || errorMsg;
 
-      const { mint } = await response.json();
-
-      if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
-        throw new Error('Invalid mint address received');
-      }
-
-      return mint;
-    } catch (error) {
-      console.error('NFT Minting fehlgeschlagen:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
-        context: { 
-          action: 'mint_nft',
-          wallet: getWalletAddressSafe(wallet),
-          name,
-          x,
-          y,
-          error: error instanceof Error ? error.message : 'Unknown error'
+            monitoring.logError({
+              error: new Error(errorMsg),
+              context: {
+                action: 'mint_nft_response_error',
+                responseStatus: response.status,
+                responseBody: error,
+                wallet: getWalletAddressSafe(wallet),
+                input: { name, description, imageUrl, x, y }
+              }
+            });
+          } catch {
+            monitoring.logError({
+              error: new Error('Invalid JSON response during mint'),
+              context: {
+                action: 'mint_nft_invalid_json',
+                responseStatus: response.status,
+                wallet: getWalletAddressSafe(wallet),
+                input: { name, description, imageUrl, x, y }
+              }
+            });
+          }
+          throw new Error(`Server error: ${errorMsg}`);
         }
-      });
-      throw new Error('NFT konnte nicht erstellt werden');
-    }
+
+        const { mint } = await response.json();
+
+        if (!mint || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) {
+          throw new Error('Invalid mint address received');
+        }
+
+        return mint;
+      } catch (error) {
+        console.error('NFT Minting fehlgeschlagen:', error);
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
+          context: { 
+            action: 'mint_nft',
+            wallet: getWalletAddressSafe(wallet),
+            name,
+            x,
+            y,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
+        });
+        throw new Error('NFT konnte nicht erstellt werden');
+      }
+    }, 'mint_nft');
   }
 
   async getWalletBalance(publicKey: PublicKey): Promise<number> {

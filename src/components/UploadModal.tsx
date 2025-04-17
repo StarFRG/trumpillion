@@ -53,7 +53,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .select('owner')
         .eq('x', x)
         .eq('y', y)
-        .single();
+        .maybeSingle();
 
       if (error) {
         throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
@@ -139,6 +139,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setPreviewUrl(newPreviewUrl);
       return true;
     } catch (error) {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
       setError(getErrorMessage(error));
       return false;
     }
@@ -227,6 +231,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         }
       }
     }
+
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
     setUploadedImageUrl(null);
     setTitle('');
     setDescription('');
@@ -234,7 +243,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setPreviewUrl(null);
     setStep('initial');
     onClose();
-  }, [uploadedImageUrl, onClose, wallet]);
+  }, [uploadedImageUrl, previewUrl, onClose, wallet]);
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
@@ -255,6 +264,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
     setLoading(true);
     setError(null);
+
+    if (loading) return; // Verhindert doppelten Aufruf
 
     try {
       const mintAddress = await mintNft(wallet, {
@@ -318,7 +329,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             if (availablePixel) {
               setCoordinates(availablePixel);
             } else {
-              throw new Error('NO_PIXELS_AVAILABLE');
+              setError('Leider sind aktuell keine freien Pixel verfügbar.');
+              toast.error('Keine freien Pixel verfügbar.');
+              onClose();
+              return;
             }
           }
         } catch (error) {
@@ -333,7 +347,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       initCoordinates();
     }
-  }, [isOpen, coordinates, selectedPixel, findAvailablePixel, wallet]);
+  }, [isOpen, coordinates, selectedPixel, findAvailablePixel, wallet, onClose]);
 
   if (!isOpen) return null;
 

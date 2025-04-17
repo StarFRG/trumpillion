@@ -1,16 +1,16 @@
 import { PublicKey } from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import { z } from 'zod';
-import { monitoring } from './monitoring';
+import { monitoring } from '../services/monitoring';
 import { solanaService } from './solana';
 import { isWalletConnected, getWalletAddress, getWalletPublicKey } from '../utils/walletUtils';
 
 const WalletValidationSchema = z.object({
   publicKey: z.instanceof(PublicKey),
   connected: z.boolean(),
-  signTransaction: z.function(),
-  signAllTransactions: z.function(),
-  signMessage: z.function(),
+  signTransaction: z.function().optional(),
+  signAllTransactions: z.function().optional(),
+  signMessage: z.function().optional()
 });
 
 export class WalletValidationService {
@@ -158,9 +158,18 @@ export class WalletValidationService {
       const pubkey = getWalletPublicKey(wallet);
       if (!pubkey) return false;
 
+      // Check if signMessage is supported
+      if (!wallet.signMessage) {
+        monitoring.logError({
+          error: new Error('signMessage not supported by wallet'),
+          context: { action: 'validate_wallet_permissions' }
+        });
+        return false;
+      }
+
       // Test signing capability
       const message = new TextEncoder().encode('Test Message');
-      await wallet.signMessage?.(message);
+      await wallet.signMessage(message);
 
       return true;
     } catch (error) {

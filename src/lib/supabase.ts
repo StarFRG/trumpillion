@@ -91,6 +91,7 @@ export const getSupabase = async () => {
         console.log('✅ Supabase connection successful');
         
         supabaseInstance = client;
+        supabasePromise = null;
         return client;
       } catch (error) {
         attempts++;
@@ -113,6 +114,8 @@ export const getSupabase = async () => {
       }
     }
 
+    // If we get here, all attempts failed
+    supabasePromise = null;
     throw new Error('Failed to initialize Supabase after all retry attempts');
   })();
 
