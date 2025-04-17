@@ -98,10 +98,11 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     // Check pixel availability
     const { data: existingPixel } = await supabase
       .from('pixels')
-      .select('x, y', { head: false })
+      .select('x, y')
       .eq('x', x)
       .eq('y', y)
-      .maybeSingle();
+      .limit(1)
+      .single();
 
     if (existingPixel) {
       return { 
@@ -126,6 +127,10 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       });
 
       if (!imageResponse.ok) {
+        monitoring.logErrorWithContext(new Error('IMAGE_FETCH_FAILED'), 'mint-nft.ts:fetch', {
+          imageUrl,
+          status: imageResponse.status
+        });
         throw new Error('UPLOAD_FAILED');
       }
 

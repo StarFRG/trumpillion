@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { getSupabase } from '../../lib/supabase';
-import { validateFile } from '../../utils/validation';
-import { monitoring } from '../../services/monitoring';
-import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
+import { getSupabase } from '../lib/supabase';
+import { validateFile } from '../utils/validation';
+import { monitoring } from '../services/monitoring';
+import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 
 export const usePixelModalLogic = (onClose: () => void) => {
   const [uploading, setUploading] = useState(false);
@@ -71,16 +71,11 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const publicUrl = publicData.publicUrl;
       setImageUrl(publicUrl);
 
-      const { error: dbError } = await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: publicUrl,
-          owner: getWalletAddress(wallet)
-        });
-
-      if (dbError) throw dbError;
+      monitoring.logEvent('upload_completed', {
+        imageUrl: publicUrl,
+        coordinates,
+        wallet: getWalletAddress(wallet)
+      });
 
       onClose();
     } catch (error) {

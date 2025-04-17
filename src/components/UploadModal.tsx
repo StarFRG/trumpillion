@@ -284,7 +284,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           y: coordinates.y,
           image_url: uploadedImageUrl,
           nft_url: nftUrl,
-          owner: getWalletAddress(wallet)
+          owner: getWalletAddress(wallet),
+          mint_address: mintAddress
         });
         throw new Error('UPLOAD_FAILED');
       }
