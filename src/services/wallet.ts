@@ -31,6 +31,12 @@ export class WalletValidationService {
     }
   }
 
+  static validateWalletOrThrow(wallet: WalletContextState): void {
+    if (!wallet || !wallet.connected || !wallet.publicKey) {
+      throw new Error('WALLET_NOT_CONNECTED');
+    }
+  }
+
   static async validateBalance(wallet: WalletContextState, requiredAmount: number): Promise<boolean> {
     if (!isWalletConnected(wallet)) {
       throw new Error('Wallet ist nicht verbunden');
@@ -170,5 +176,7 @@ export class WalletValidationService {
     }
   }
 }
+
+export const walletValidation = new WalletValidationService();
 
 export default WalletValidationService;

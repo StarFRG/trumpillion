@@ -50,12 +50,29 @@ class MonitoringService {
     });
   }
 
-  setUser(user: { id?: string; wallet?: string; email?: string } | null) {
+  setUser(user: { id?: string; wallet?: string; email?: string; } | null) {
     if (user) {
       Sentry.setUser(user);
     } else {
       Sentry.setUser(null);
     }
+  }
+
+  logErrorWithContext(
+    err: unknown,
+    location: string,
+    context: Record<string, any> = {}
+  ) {
+    if (this.isDevelopment) {
+      console.error(`[${location}]`, err);
+      console.log('Context:', context);
+      return;
+    }
+
+    Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
+      tags: { location },
+      extra: context,
+    });
   }
 }
 

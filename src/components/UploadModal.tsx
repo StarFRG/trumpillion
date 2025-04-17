@@ -1,18 +1,22 @@
-import React, { useCallback, useState } from 'react';
-import { WalletButton } from './WalletButton';
-import { X, Upload } from 'lucide-react';
+import React, { useCallback, useState, useEffect } from 'react';
+import { useWalletConnection } from '../hooks/useWalletConnection';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 import { useMintNft } from '../hooks/useMintNft';
-import { useWalletConnection } from '../hooks/useWalletConnection';
 import { validateFile } from '../utils/validation';
+import { X, Upload } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import { getErrorMessage } from '../utils/errorMessages';
+import { WalletValidationService } from '../services/wallet';
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+type ModalStep = 'initial' | 'confirmed';
 
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
   const { wallet, isConnecting, connectionError } = useWalletConnection();
@@ -27,6 +31,91 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [coordinates, setCoordinates] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [step, setStep] = useState<ModalStep>('initial');
+
+  const validateWallet = async () => {
+    if (!isWalletConnected(wallet)) {
+      throw new Error('WALLET_NOT_CONNECTED');
+    }
+    return WalletValidationService.validateWallet(wallet);
+  };
+
+  const validateBalance = async () => {
+    if (!wallet) return false;
+    return WalletValidationService.validateBalance(wallet, 1_000_000_000); // 1 SOL in Lamports
+  };
+
+  const checkPixelAvailability = async (x: number, y: number) => {
+    try {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', x)
+        .eq('y', y)
+        .single();
+
+      if (error) {
+        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
+      }
+
+      return !data?.owner;
+    } catch (error) {
+      monitoring.logErrorWithContext(error, 'UploadModal:checkPixelAvailability', {
+        x,
+        y,
+        wallet: getWalletAddress(wallet)
+      });
+      return false;
+    }
+  };
+
+  const handlePrecheck = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!uploadedImageUrl) {
+        throw new Error('INVALID_IMAGE');
+      }
+
+      if (!title || !description) {
+        throw new Error('INVALID_INPUT');
+      }
+
+      if (!coordinates) {
+        throw new Error('INVALID_COORDINATES');
+      }
+
+      const walletOk = await validateWallet();
+      if (!walletOk) {
+        throw new Error('WALLET_NOT_CONNECTED');
+      }
+
+      const balanceOk = await validateBalance();
+      if (!balanceOk) {
+        throw new Error('INSUFFICIENT_BALANCE');
+      }
+
+      const pixelFree = await checkPixelAvailability(coordinates.x, coordinates.y);
+      if (!pixelFree) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
+      setStep('confirmed');
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setError(message);
+      toast.error(message);
+      
+      monitoring.logErrorWithContext(error, 'UploadModal:handlePrecheck', {
+        coordinates,
+        wallet: getWalletAddress(wallet)
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -50,15 +139,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setPreviewUrl(newPreviewUrl);
       return true;
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Invalid file');
+      setError(getErrorMessage(error));
       return false;
     }
   }, [previewUrl]);
 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) {
-      setError('Wallet ist nicht verbunden');
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     try {
@@ -66,23 +154,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setLoading(true);
       setError(null);
 
-      const supabase = await getSupabase();
-      const fileExt = file.name.split('.').pop();
-      const fileName = `pixel_${coordinates?.x || 0}_${coordinates?.y || 0}.${fileExt}`;
-
-      // Check if pixel is already taken
-      const { data: existingPixels, error: checkError } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates?.x)
-        .eq('y', coordinates?.y)
-        .limit(1);
-
-      if (checkError) throw checkError;
-      if (existingPixels && existingPixels.length > 0) {
-        throw new Error('This pixel is already owned');
+      if (!coordinates) {
+        throw new Error('INVALID_COORDINATES');
       }
 
+      const fileExt = file.name.split('.').pop();
+      if (!fileExt) {
+        throw new Error('INVALID_IMAGE');
+      }
+
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
+
+      const supabase = await getSupabase();
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
@@ -97,17 +180,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Failed to get public URL');
+        throw new Error('UPLOAD_FAILED');
       }
 
       setUploadedImageUrl(publicData.publicUrl);
     } catch (error) {
-      console.error('Upload failed:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { action: 'upload_image' }
+      monitoring.logErrorWithContext(error, 'UploadModal:handleUpload', {
+        coordinates,
+        wallet: getWalletAddress(wallet)
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
+      setError(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -137,9 +220,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           const supabase = await getSupabase();
           await supabase.storage.from('pixel-images').remove([fileName]);
         } catch (error) {
-          monitoring.logError({
-            error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
-            context: { action: 'cancel_upload', fileName }
+          monitoring.logErrorWithContext(error, 'UploadModal:handleCancel', {
+            fileName,
+            wallet: getWalletAddress(wallet)
           });
         }
       }
@@ -149,28 +232,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setDescription('');
     setCoordinates(null);
     setPreviewUrl(null);
+    setStep('initial');
     onClose();
-  }, [uploadedImageUrl, onClose]);
+  }, [uploadedImageUrl, onClose, wallet]);
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
-      setError('Bitte verbinde dein Wallet und wähle eine Datei aus');
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     if (!wallet.publicKey) {
-      setError('Wallet-Adresse konnte nicht gelesen werden');
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     if (!uploadedImageUrl || !coordinates) {
-      setError('Bitte wähle eine Datei aus und selektiere ein Pixel');
-      return;
+      throw new Error('INVALID_INPUT');
     }
 
     if (!title || !description) {
-      setError('Bitte fülle alle Felder aus');
-      return;
+      throw new Error('INVALID_INPUT');
     }
 
     setLoading(true);
@@ -198,68 +278,61 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           owner: getWalletAddress(wallet)
         });
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        monitoring.logErrorWithContext(dbError, 'UploadModal:upsert', {
+          x: coordinates.x,
+          y: coordinates.y,
+          image_url: uploadedImageUrl,
+          nft_url: nftUrl,
+          owner: getWalletAddress(wallet)
+        });
+        throw new Error('UPLOAD_FAILED');
+      }
 
       setUploadSuccess(true);
+      toast.success('NFT erfolgreich erstellt!');
       setTimeout(() => {
         handleCancel();
       }, 2000);
     } catch (error) {
-      console.error('Error:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Failed to mint NFT'),
-        context: { 
-          action: 'mint_nft',
-          coordinates,
-          wallet: getWalletAddress(wallet)
-        }
+      monitoring.logErrorWithContext(error, 'UploadModal:handleMint', {
+        coordinates,
+        wallet: getWalletAddress(wallet)
       });
-      setError(error instanceof Error ? error.message : 'Ein Fehler ist aufgetreten');
+      setError(getErrorMessage(error));
+      toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
   }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, mintNft]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen && !coordinates) {
       const initCoordinates = async () => {
         try {
           if (selectedPixel) {
-            // Check if pixel is already taken
-            const supabase = await getSupabase();
-            const { data: existingPixels, error: checkError } = await supabase
-              .from('pixels')
-              .select('owner')
-              .eq('x', selectedPixel.x)
-              .eq('y', selectedPixel.y)
-              .limit(1);
-
-            if (checkError) throw checkError;
-            if (existingPixels && existingPixels.length > 0) {
-              throw new Error('Selected pixel is already owned');
-            }
-
             setCoordinates(selectedPixel);
           } else {
             const availablePixel = await findAvailablePixel();
             if (availablePixel) {
               setCoordinates(availablePixel);
             } else {
-              setError('Keine freien Pixel verfügbar');
+              throw new Error('NO_PIXELS_AVAILABLE');
             }
           }
         } catch (error) {
-          setError('Fehler beim Laden der Koordinaten');
-          monitoring.logError({
-            error: error instanceof Error ? error : new Error('Failed to initialize coordinates'),
-            context: { action: 'init_coordinates' }
+          monitoring.logErrorWithContext(error, 'UploadModal:initCoordinates', {
+            selectedPixel,
+            wallet: getWalletAddress(wallet)
           });
+          setError(getErrorMessage(error));
+          toast.error(getErrorMessage(error));
         }
       };
 
       initCoordinates();
     }
-  }, [isOpen, coordinates, selectedPixel, findAvailablePixel]);
+  }, [isOpen, coordinates, selectedPixel, findAvailablePixel, wallet]);
 
   if (!isOpen) return null;
 
@@ -285,7 +358,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             {connectionError && (
               <p className="text-red-500 text-sm mb-4">{connectionError}</p>
             )}
-            <WalletButton />
           </div>
         ) : (
           <div className="space-y-6">
@@ -377,26 +449,45 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
               </div>
             )}
 
-            <button
-              onClick={handleMint}
-              disabled={!uploadedImageUrl || loading || !title || !description || !coordinates}
-              className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2
-                ${uploadedImageUrl && !loading && title && description && coordinates
-                  ? 'bg-red-500 hover:bg-red-600 text-white'
-                  : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                }`}
-            >
-              {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  Creating your moment...
-                </>
-              ) : uploadSuccess ? (
-                'Success! Your moment is now part of history!'
-              ) : (
-                'Mint Your Trump Moment (1 SOL)'
-              )}
-            </button>
+            {step === 'initial' && (
+              <button
+                onClick={handlePrecheck}
+                disabled={loading || !uploadedImageUrl || !title || !description || !coordinates}
+                className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2
+                  ${uploadedImageUrl && !loading && title && description && coordinates
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                  }`}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    Prüfe Voraussetzungen...
+                  </>
+                ) : (
+                  'Weiter zur Vorschau'
+                )}
+              </button>
+            )}
+
+            {step === 'confirmed' && (
+              <button
+                onClick={handleMint}
+                disabled={loading}
+                className="w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                    Creating your moment...
+                  </>
+                ) : uploadSuccess ? (
+                  'Success! Your moment is now part of history!'
+                ) : (
+                  'Mint Your Trump Moment (1 SOL)'
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>

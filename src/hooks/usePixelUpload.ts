@@ -13,7 +13,7 @@ export const usePixelUpload = () => {
   const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }): Promise<string> => {
     try {
       if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet ist nicht verbunden oder ungültig');
+        throw new Error('WALLET_NOT_CONNECTED');
       }
 
       validateFile(file);
@@ -22,25 +22,14 @@ export const usePixelUpload = () => {
 
       const supabase = await getSupabase();
       
-      // Check if pixel is already taken
-      const { data: existingPixel } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .single();
-
-      if (existingPixel?.owner) {
-        throw new Error('This pixel is already owned');
-      }
-
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
-        throw new Error('Dateiendung konnte nicht ermittelt werden');
+        throw new Error('INVALID_IMAGE');
       }
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
+      // Upload file to storage
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
@@ -50,48 +39,64 @@ export const usePixelUpload = () => {
 
       if (storageError) throw storageError;
 
+      // Get public URL
       const { data: publicData } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Öffentliche URL konnte nicht generiert werden');
+        throw new Error('UPLOAD_FAILED');
       }
 
-      const publicUrl = publicData.publicUrl;
-
-      const { error: dbError } = await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: publicUrl,
-          owner: getWalletAddress(wallet)
-        });
-
-      if (dbError) throw dbError;
-
-      return publicUrl;
+      return publicData.publicUrl;
     } catch (error) {
-      console.error('Upload failed:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
-          action: 'upload_pixel', 
-          coordinates,
-          wallet: getWalletAddress(wallet)
-        }
+      monitoring.logErrorWithContext(error, 'usePixelUpload:uploadPixel', {
+        coordinates,
+        wallet: getWalletAddress(wallet)
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
+      setError(getErrorMessage(error));
       throw error;
     } finally {
       setUploading(false);
     }
   }, [wallet]);
 
+  const checkPixelAvailability = async (x: number, y: number): Promise<boolean> => {
+    try {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', x)
+        .eq('y', y)
+        .single();
+
+      if (error) {
+        monitoring.logErrorWithContext(error, 'usePixelUpload:checkPixelAvailability', {
+          x,
+          y,
+          wallet: getWalletAddress(wallet)
+        });
+        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
+      }
+
+      return !data?.owner;
+    } catch (error) {
+      monitoring.logErrorWithContext(error, 'usePixelUpload:checkPixelAvailability', {
+        x,
+        y,
+        wallet: getWalletAddress(wallet)
+      });
+      return false;
+    }
+  };
+
   return {
     uploading,
     error,
-    uploadPixel
+    uploadPixel,
+    checkPixelAvailability
   };
 };
+
+export default usePixelUpload;
