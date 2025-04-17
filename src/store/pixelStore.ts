@@ -57,8 +57,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
               const { x, y } = newPixel;
 
               if (validateCoordinates(x, y)) {
-                pixels[y][x] = newPixel;
-                set({ pixels: [...pixels] });
+                const updatedPixels = pixels.map(row => [...row]);
+                updatedPixels[y][x] = newPixel;
+                set({ pixels: updatedPixels });
               }
             }
           )
@@ -84,20 +85,6 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         }
 
         const supabase = await getSupabase();
-        
-        // Check if pixel exists and is not already owned
-        const { data: existingPixel, error: checkError } = await supabase
-          .from('pixels')
-          .select('owner')
-          .eq('x', pixel.x)
-          .eq('y', pixel.y)
-          .maybeSingle();
-
-        if (checkError) throw checkError;
-        if (existingPixel?.owner) {
-          throw new Error('Pixel is already owned');
-        }
-
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -106,13 +93,18 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             image_url: pixel.imageUrl,
             owner: pixel.owner,
             nft_url: pixel.nftUrl
-          });
+          }, {
+            onConflict: 'x,y'
+          })
+          .select()
+          .throwOnError();
 
         if (error) throw error;
 
         const pixels = get().pixels;
-        pixels[pixel.y][pixel.x] = pixel;
-        set({ pixels: [...pixels] });
+        const updatedPixels = pixels.map(row => [...row]);
+        updatedPixels[pixel.y][pixel.x] = pixel;
+        set({ pixels: updatedPixels });
       } catch (error) {
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to update pixel'),
@@ -123,7 +115,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     },
 
     loadPixels: async (startRow = 0, startCol = 0, endRow = GRID_SIZE - 1, endCol = GRID_SIZE - 1) => {
-      if (!validateCoordinates(startCol, startRow) || !validateCoordinates(endCol, endRow)) {
+      if (!validateCoordinates(startRow, startCol) || !validateCoordinates(endRow, endCol)) {
         throw new Error('Invalid coordinate range');
       }
 
@@ -137,44 +129,57 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           const supabase = await getSupabase();
           const { data, error } = await supabase
             .from('pixels')
-            .select('*')
+            .select('*', {
+              head: false,
+              count: 'exact'
+            })
             .gte('x', startCol)
             .lte('x', endCol)
             .gte('y', startRow)
-            .lte('y', endRow);
+            .lte('y', endRow)
+            .throwOnError();
 
           if (error) throw error;
 
+          if (!Array.isArray(data)) {
+            throw new Error('Invalid response format from database');
+          }
+
           const pixels = get().pixels;
+          const updatedPixels = pixels.map(row => [...row]);
           
           // Reset pixels in range
           for (let y = startRow; y <= endRow; y++) {
             for (let x = startCol; x <= endCol; x++) {
-              pixels[y][x] = null;
+              if (updatedPixels[y]) {
+                updatedPixels[y][x] = null;
+              }
             }
           }
 
           // Update with validated pixels
           data.forEach((pixel: PixelData) => {
             if (validatePixel(pixel)) {
-              pixels[pixel.y][pixel.x] = pixel;
+              updatedPixels[pixel.y][pixel.x] = pixel;
             }
           });
 
-          set({ pixels: [...pixels], loading: false, error: null });
+          set({ pixels: updatedPixels, loading: false, error: null });
           return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Failed to load pixels');
           attempts++;
           
           if (attempts < LOAD_RETRY_ATTEMPTS) {
-            await new Promise(resolve => setTimeout(resolve, LOAD_RETRY_DELAY * attempts));
+            console.warn(`Pixel load attempt ${attempts} failed, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, LOAD_RETRY_DELAY));
           }
         }
       }
 
+      const errorMessage = lastError?.message || 'Failed to load pixels after multiple attempts';
       monitoring.logError({
-        error: lastError || new Error('Failed to load pixels after multiple attempts'),
+        error: lastError || new Error(errorMessage),
         context: { 
           action: 'load_pixels',
           startRow,
@@ -184,74 +189,75 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           attempts
         }
       });
-      set({ 
-        error: lastError?.message || 'Failed to load pixels after multiple attempts',
-        loading: false 
-      });
+      set({ error: errorMessage, loading: false });
     },
 
     getPixelData: (x: number, y: number) => {
       if (!validateCoordinates(x, y)) return null;
       
       const pixels = get().pixels;
-      return pixels[y][x];
+      return pixels[y]?.[x] || null;
     },
 
     findAvailablePixel: async () => {
       try {
         const supabase = await getSupabase();
-        
-        // Try to find the last assigned pixel
-        const { data: lastPixel, error: lastPixelError } = await supabase
+        const { data, error } = await supabase
           .from('pixels')
-          .select('x, y')
+          .select('x, y', { head: false })
           .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
 
-        if (lastPixelError) throw lastPixelError;
+        if (error) throw error;
 
         // Start from center if no pixels exist
-        if (!lastPixel) {
-          const centerX = Math.floor(GRID_SIZE / 2);
-          const centerY = Math.floor(GRID_SIZE / 2);
-          
-          // Verify center pixel is available
-          const { data: centerPixel } = await supabase
-            .from('pixels')
-            .select('owner')
-            .eq('x', centerX)
-            .eq('y', centerY)
-            .maybeSingle();
+        if (!data?.length) {
+          return { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) };
+        }
 
-          if (!centerPixel) {
-            return { x: centerX, y: centerY };
+        const lastPixel = data[0];
+        const searchRadius = 10;
+        const xRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.x - searchRadius + i);
+        const yRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.y - searchRadius + i);
+
+        // Get all pixels in search area
+        const { data: existingPixels, error: searchError } = await supabase
+          .from('pixels')
+          .select('x, y', { head: false })
+          .in('x', xRange)
+          .in('y', yRange);
+
+        if (searchError) throw searchError;
+
+        // Create set of taken coordinates
+        const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
+
+        // Find first available coordinate
+        for (const y of yRange) {
+          for (const x of xRange) {
+            if (validateCoordinates(x, y) && !taken.has(`${x},${y}`)) {
+              return { x, y };
+            }
           }
         }
 
-        // Start spiral search from last pixel or center
-        const startX = lastPixel ? lastPixel.x : Math.floor(GRID_SIZE / 2);
-        const startY = lastPixel ? lastPixel.y : Math.floor(GRID_SIZE / 2);
+        // If no pixel found in search area, expand search
+        for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
+          const { data: pixels, error: expandedSearchError } = await supabase
+            .from('pixels')
+            .select('x, y', { head: false })
+            .or(`x.eq.${lastPixel.x - radius},x.eq.${lastPixel.x + radius}`)
+            .or(`y.eq.${lastPixel.y - radius},y.eq.${lastPixel.y + radius}`);
 
-        // Spiral search pattern
-        for (let radius = 1; radius < GRID_SIZE / 2; radius++) {
-          // Check all points in current radius
+          if (expandedSearchError) throw expandedSearchError;
+
+          const takenExpanded = new Set(pixels?.map(p => `${p.x},${p.y}`));
+
           for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
-              const x = startX + dx;
-              const y = startY + dy;
-
-              if (!validateCoordinates(x, y)) continue;
-
-              // Check if pixel is available
-              const { data: existingPixel } = await supabase
-                .from('pixels')
-                .select('owner')
-                .eq('x', x)
-                .eq('y', y)
-                .maybeSingle();
-
-              if (!existingPixel) {
+              const x = lastPixel.x + dx;
+              const y = lastPixel.y + dy;
+              if (validateCoordinates(x, y) && !takenExpanded.has(`${x},${y}`)) {
                 return { x, y };
               }
             }

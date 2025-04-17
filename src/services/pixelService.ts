@@ -11,9 +11,13 @@ export class PixelService {
         .select('*')
         .eq('x', x)
         .eq('y', y)
-        .maybeSingle();
+        .single();
 
       if (error) throw error;
+      if (!data) {
+        throw new Error('Pixel nicht gefunden');
+      }
+      
       return data;
     } catch (error) {
       monitoring.logError({
@@ -27,24 +31,10 @@ export class PixelService {
   async updatePixel(pixel: PixelData): Promise<boolean> {
     try {
       if (!pixel.x || !pixel.y || !pixel.imageUrl || !pixel.owner || !pixel.nftUrl) {
-        throw new Error('Invalid pixel data');
+        throw new Error('Ungültige Pixel-Daten');
       }
 
       const supabase = await getSupabase();
-
-      // Check if pixel exists and is not already owned
-      const { data: existingPixel, error: checkError } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', pixel.x)
-        .eq('y', pixel.y)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-      if (existingPixel?.owner && existingPixel.owner !== pixel.owner) {
-        throw new Error('Pixel is already owned by someone else');
-      }
-
       const { error } = await supabase
         .from('pixels')
         .upsert({
@@ -69,20 +59,6 @@ export class PixelService {
   async deletePixel(x: number, y: number): Promise<boolean> {
     try {
       const supabase = await getSupabase();
-
-      // Check if pixel exists
-      const { data: existingPixel, error: checkError } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', x)
-        .eq('y', y)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-      if (!existingPixel) {
-        throw new Error('Pixel not found');
-      }
-
       const { error } = await supabase
         .from('pixels')
         .delete()

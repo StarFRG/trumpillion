@@ -13,7 +13,7 @@ export const usePixelUpload = () => {
   const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }): Promise<string> => {
     try {
       if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet is not connected');
+        throw new Error('Wallet ist nicht verbunden oder ungültig');
       }
 
       validateFile(file);
@@ -23,33 +23,23 @@ export const usePixelUpload = () => {
       const supabase = await getSupabase();
       
       // Check if pixel is already taken
-      const { data: existingPixel, error: checkError } = await supabase
+      const { data: existingPixel } = await supabase
         .from('pixels')
         .select('owner')
         .eq('x', coordinates.x)
         .eq('y', coordinates.y)
-        .maybeSingle();
+        .single();
 
-      if (checkError) throw checkError;
       if (existingPixel?.owner) {
         throw new Error('This pixel is already owned');
       }
 
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
-        throw new Error('Could not determine file extension');
+        throw new Error('Dateiendung konnte nicht ermittelt werden');
       }
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
-
-      // Check for and remove existing file
-      const { data: existingFiles } = await supabase.storage
-        .from('pixel-images')
-        .list('', { search: fileName });
-
-      if (existingFiles?.length) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
-      }
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
@@ -65,7 +55,7 @@ export const usePixelUpload = () => {
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Failed to generate public URL');
+        throw new Error('Öffentliche URL konnte nicht generiert werden');
       }
 
       const publicUrl = publicData.publicUrl;

@@ -31,8 +31,8 @@ const App: React.FC = () => {
       setFromButton(false);
       setShowModal(true);
     } catch (error) {
-      console.error("Error opening modal:", error);
-      toast.error(`Failed to open modal: ${(error as Error).message}`);
+      console.error("Fehler beim Öffnen des Modals:", error);
+      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
     }
   };
 
@@ -41,8 +41,8 @@ const App: React.FC = () => {
       setFromButton(true);
       setShowModal(true);
     } catch (error) {
-      console.error("Error opening button modal:", error);
-      toast.error(`Failed to open modal: ${(error as Error).message}`);
+      console.error("Fehler beim Öffnen des Button-Modals:", error);
+      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
     }
   };
 
@@ -52,8 +52,8 @@ const App: React.FC = () => {
       setSelectedPixel(null);
       setFromButton(false);
     } catch (error) {
-      console.error("Error closing modal:", error);
-      toast.error(`Failed to close modal: ${(error as Error).message}`);
+      console.error("Fehler beim Schließen des Modals:", error);
+      toast.error(`Modal konnte nicht geschlossen werden: ${(error as Error).message}`);
     }
   };
 

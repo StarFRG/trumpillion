@@ -57,12 +57,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) {
-      setError('Wallet is not connected');
-      return;
-    }
-
-    if (!coordinates) {
-      setError('No coordinates selected');
+      setError('Wallet ist nicht verbunden');
       return;
     }
 
@@ -72,30 +67,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setError(null);
 
       const supabase = await getSupabase();
+      const fileExt = file.name.split('.').pop();
+      const fileName = `pixel_${coordinates?.x || 0}_${coordinates?.y || 0}.${fileExt}`;
 
       // Check if pixel is already taken
-      const { data: existingPixel, error: checkError } = await supabase
+      const { data: existingPixels, error: checkError } = await supabase
         .from('pixels')
         .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .maybeSingle();
+        .eq('x', coordinates?.x)
+        .eq('y', coordinates?.y)
+        .limit(1);
 
       if (checkError) throw checkError;
-      if (existingPixel?.owner) {
+      if (existingPixels && existingPixels.length > 0) {
         throw new Error('This pixel is already owned');
-      }
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
-
-      // Check for and remove existing file
-      const { data: existingFiles } = await supabase.storage
-        .from('pixel-images')
-        .list('', { search: fileName });
-
-      if (existingFiles?.length) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
       const { data: storageData, error: storageError } = await supabase.storage
@@ -169,22 +154,22 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
-      setError('Please connect your wallet');
+      setError('Bitte verbinde dein Wallet und wähle eine Datei aus');
       return;
     }
 
     if (!wallet.publicKey) {
-      setError('Wallet address is missing');
+      setError('Wallet-Adresse konnte nicht gelesen werden');
       return;
     }
 
     if (!uploadedImageUrl || !coordinates) {
-      setError('Please upload an image and select coordinates');
+      setError('Bitte wähle eine Datei aus und selektiere ein Pixel');
       return;
     }
 
     if (!title || !description) {
-      setError('Please fill in all fields');
+      setError('Bitte fülle alle Felder aus');
       return;
     }
 
@@ -192,21 +177,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setError(null);
 
     try {
-      const supabase = await getSupabase();
-      
-      // Check if pixel is still available
-      const { data: existingPixel, error: checkError } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-      if (existingPixel?.owner) {
-        throw new Error('This pixel has been taken');
-      }
-
       const mintAddress = await mintNft(wallet, {
         name: title,
         description,
@@ -217,6 +187,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const nftUrl = `https://solscan.io/token/${mintAddress}`;
 
+      const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -243,7 +214,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      setError(error instanceof Error ? error.message : 'Ein Fehler ist aufgetreten');
     } finally {
       setLoading(false);
     }
@@ -256,15 +227,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           if (selectedPixel) {
             // Check if pixel is already taken
             const supabase = await getSupabase();
-            const { data: existingPixel, error: checkError } = await supabase
+            const { data: existingPixels, error: checkError } = await supabase
               .from('pixels')
               .select('owner')
               .eq('x', selectedPixel.x)
               .eq('y', selectedPixel.y)
-              .maybeSingle();
+              .limit(1);
 
             if (checkError) throw checkError;
-            if (existingPixel?.owner) {
+            if (existingPixels && existingPixels.length > 0) {
               throw new Error('Selected pixel is already owned');
             }
 
@@ -274,11 +245,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             if (availablePixel) {
               setCoordinates(availablePixel);
             } else {
-              setError('No free pixels available');
+              setError('Keine freien Pixel verfügbar');
             }
           }
         } catch (error) {
-          setError('Error loading coordinates');
+          setError('Fehler beim Laden der Koordinaten');
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to initialize coordinates'),
             context: { action: 'init_coordinates' }
@@ -309,7 +280,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">
-              {isConnecting ? 'Connecting wallet...' : 'Connect your wallet to continue'}
+              {isConnecting ? 'Verbinde Wallet...' : 'Verbinde dein Wallet um fortzufahren'}
             </p>
             {connectionError && (
               <p className="text-red-500 text-sm mb-4">{connectionError}</p>
