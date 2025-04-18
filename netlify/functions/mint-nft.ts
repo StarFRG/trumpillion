@@ -1,20 +1,39 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { signerIdentity, generateSigner, publicKey, none } from '@metaplex-foundation/umi';
+import { signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
 import { PublicKey } from '@solana/web3.js';
+import { Keypair as Web3Keypair } from '@solana/web3.js';
+import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
 if (!rpcUrl?.startsWith('http')) {
   throw new Error('Missing or invalid Solana RPC URL');
 }
 
+// Initialize Umi with fee payer
 const umi = createUmi(rpcUrl).use(irysUploader());
-umi.use(signerIdentity(none()));
+
+// Set up fee payer from environment variable
+if (!process.env.FEE_PAYER_PRIVATE_KEY) {
+  throw new Error('Missing FEE_PAYER_PRIVATE_KEY environment variable');
+}
+
+try {
+  const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY);
+  const feePayer = fromWeb3JsKeypair(umi, Web3Keypair.fromSecretKey(Uint8Array.from(secretKey)));
+  umi.use(signerIdentity(feePayer));
+} catch (error) {
+  monitoring.logError({
+    error: error instanceof Error ? error : new Error('Failed to initialize fee payer'),
+    context: { action: 'init_fee_payer' }
+  });
+  throw new Error('Failed to initialize fee payer');
+}
 
 const corsHeaders = {
   'Content-Type': 'application/json',
