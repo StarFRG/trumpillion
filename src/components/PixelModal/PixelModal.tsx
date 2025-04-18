@@ -3,12 +3,13 @@ import { useWalletConnection } from '../../hooks/useWalletConnection';
 import { usePixelStore } from '../../store/pixelStore';
 import { getSupabase } from '../../lib/supabase';
 import { monitoring } from '../../services/monitoring';
-import { getWalletAddress, isWalletConnected } from '../../utils/walletUtils';
+import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
 import { useMintNft } from '../../hooks/useMintNft';
 import { validateFile } from '../../utils/validation';
 import { X, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ShareModal } from '../ShareModal';
+import { solanaService } from '../../services/solana';
 
 interface PixelModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const { mintNft } = useMintNft();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -238,12 +240,18 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       return;
     }
 
-    if (loading) return; // Verhindert doppelten Aufruf
+    if (loading || processingPayment) return;
 
     setLoading(true);
+    setProcessingPayment(true);
     setError(null);
 
     try {
+      // Step 1: Process payment
+      const txId = await solanaService.processPayment(wallet);
+      console.log('Payment successful:', txId);
+
+      // Step 2: Mint NFT
       const mintAddress = await mintNft(wallet, {
         name: title,
         description,
@@ -300,8 +308,9 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setError(error instanceof Error ? error.message : t('common.error'));
     } finally {
       setLoading(false);
+      setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft, loading]);
+  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft, loading, processingPayment]);
 
   if (!isOpen) return null;
 
@@ -336,16 +345,14 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           </button>
         </div>
 
-        {connectionError && (
-          <div className="p-2 mb-4 bg-red-500/10 text-red-500 rounded">
-            {connectionError}
-          </div>
-        )}
-
-        {isConnecting ? (
+        {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
-            <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-300">Connecting wallet...</p>
+            <p className="text-gray-300 mb-4">
+              {isConnecting ? 'Connecting wallet...' : 'Please connect your wallet to continue'}
+            </p>
+            {connectionError && (
+              <p className="text-red-500 text-sm mb-4">{connectionError}</p>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
@@ -439,17 +446,17 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
             <button
               onClick={handleMint}
-              disabled={!uploadedImageUrl || loading || !title || !description || !selectedCoordinates}
+              disabled={!uploadedImageUrl || loading || processingPayment || !title || !description || !selectedCoordinates}
               className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2
-                ${uploadedImageUrl && !loading && title && description && selectedCoordinates
+                ${uploadedImageUrl && !loading && !processingPayment && title && description && selectedCoordinates
                   ? 'bg-red-500 hover:bg-red-600 text-white'
                   : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                 }`}
             >
-              {loading ? (
+              {loading || processingPayment ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  Creating your moment...
+                  {processingPayment ? 'Processing payment...' : 'Creating NFT...'}
                 </>
               ) : uploadSuccess ? (
                 'Success! Your moment is now part of history!'

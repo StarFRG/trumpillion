@@ -10,6 +10,8 @@ import { X, Upload } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getErrorMessage } from '../utils/errorMessages';
 import { WalletValidationService } from '../services/wallet';
+import { solanaService } from '../services/solana';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -19,7 +21,7 @@ interface UploadModalProps {
 type ModalStep = 'initial' | 'confirmed';
 
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
-  const { wallet, isConnecting, connectionError } = useWalletConnection();
+  const wallet = useWallet();
   const { mintNft } = useMintNft();
   const { selectedPixel, findAvailablePixel } = usePixelStore();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [step, setStep] = useState<ModalStep>('initial');
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   const validateWallet = async () => {
     if (!isWalletConnected(wallet)) {
@@ -262,12 +265,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       throw new Error('INVALID_INPUT');
     }
 
+    if (loading || processingPayment) return; // Verhindert doppelten Aufruf
+
     setLoading(true);
+    setProcessingPayment(true);
     setError(null);
 
-    if (loading) return; // Verhindert doppelten Aufruf
-
     try {
+      // Schritt 1: Zahlung auslösen
+      const txId = await solanaService.processPayment(wallet);
+      console.log('Zahlung erfolgreich mit TxID:', txId);
+
+      // Schritt 2: NFT minten
       const mintAddress = await mintNft(wallet, {
         name: title,
         description,
@@ -315,8 +324,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
+      setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, mintNft]);
+  }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, mintNft, loading, processingPayment]);
 
   useEffect(() => {
     if (isOpen && !coordinates) {
@@ -368,11 +378,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">
-              {isConnecting ? 'Verbinde Wallet...' : 'Verbinde dein Wallet um fortzufahren'}
+              Verbinde dein Wallet um fortzufahren
             </p>
-            {connectionError && (
-              <p className="text-red-500 text-sm mb-4">{connectionError}</p>
-            )}
           </div>
         ) : (
           <div className="space-y-6">
@@ -488,13 +495,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
             {step === 'confirmed' && (
               <button
                 onClick={handleMint}
-                disabled={loading}
+                disabled={loading || processingPayment}
                 className="w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed"
               >
-                {loading ? (
+                {loading || processingPayment ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                    Creating your moment...
+                    {processingPayment ? 'Verarbeite Zahlung...' : 'Erstelle NFT...'}
                   </>
                 ) : uploadSuccess ? (
                   'Success! Your moment is now part of history!'
