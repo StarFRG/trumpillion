@@ -3,7 +3,6 @@ import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { signerIdentity, generateSigner, publicKey, none } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
-import { base58 } from '@metaplex-foundation/umi/serializers';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
@@ -79,18 +78,25 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    const walletPublicKey = publicKey(wallet);
-    const walletBase58 = base58.serialize(walletPublicKey);
+    if (!/^https?:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
+      };
+    }
+
+    const walletPublicKey = wallet;
 
     // Check pixel availability
     const { data: existingPixel } = await supabase
       .from('pixels')
-      .select('x, y')
+      .select('x, y', { head: false })
       .eq('x', x)
       .eq('y', y)
       .maybeSingle();
 
-    if (existingPixel?.owner) {
+    if (existingPixel) {
       return { 
         statusCode: 400,
         headers: corsHeaders,
@@ -98,60 +104,95 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Generate mint keypair in backend
-    const mint = generateSigner(umi);
+    // Validate and load image with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    // Prepare metadata
-    const metadata = {
-      name,
-      symbol: 'TRUMPILLION',
-      description,
-      image: imageUrl,
-      attributes: [
-        { trait_type: 'X Coordinate', value: x.toString() },
-        { trait_type: 'Y Coordinate', value: y.toString() }
-      ],
-      properties: {
-        files: [{ uri: imageUrl, type: 'image/jpeg' }],
-        category: 'image',
-        creators: [{ address: walletBase58, share: 100 }]
+    try {
+      const imageResponse = await fetch(imageUrl, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'image/*',
+          'User-Agent': 'Trumpillion/1.0'
+        }
+      });
+
+      if (!imageResponse.ok) {
+        throw new Error('UPLOAD_FAILED');
       }
-    };
 
-    // Upload metadata
-    const uploadResult = await umi.uploader.uploadJson(metadata);
-    if (!uploadResult?.uri) {
-      throw new Error('UPLOAD_FAILED');
+      const imageBuffer = await imageResponse.arrayBuffer();
+      const contentType = imageResponse.headers.get('Content-Type') || 'image/jpeg';
+
+      if (imageBuffer.byteLength > 10 * 1024 * 1024) {
+        return { 
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
+        };
+      }
+
+      // Prepare metadata
+      const metadata = {
+        name,
+        symbol: 'TRUMPILLION',
+        description,
+        image: imageUrl,
+        attributes: [
+          { trait_type: 'X Coordinate', value: x.toString() },
+          { trait_type: 'Y Coordinate', value: y.toString() }
+        ],
+        properties: {
+          files: [{ uri: imageUrl, type: contentType }],
+          category: 'image',
+          creators: [{ address: wallet, share: 100 }]
+        }
+      };
+
+      // Upload metadata
+      const uploadResult = await umi.uploader.uploadJson(metadata);
+      if (!uploadResult?.uri) {
+        throw new Error('UPLOAD_FAILED');
+      }
+      const { uri } = uploadResult;
+
+      // Generate mint
+      const mint = generateSigner(umi);
+
+      // Prepare transaction
+      const transaction = createV1(umi, {
+        mint,
+        name,
+        symbol: 'TRUMPILLION',
+        uri,
+        sellerFeeBasisPoints: 500,
+        tokenStandard: TokenStandard.NonFungible,
+        creators: [{ address: wallet, share: 100, verified: true }]
+      }).toTransaction();
+
+      // Serialize transaction for client
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false
+      });
+
+      // Extract mint address safely
+      const mintAddress = mint?.publicKey?.toBase58?.();
+      if (!mintAddress) {
+        throw new Error('MINT_FAILED');
+      }
+
+      return { 
+        statusCode: 200, 
+        headers: corsHeaders,
+        body: JSON.stringify({ 
+          transaction: serializedTransaction.toString('base64'),
+          mint: mintAddress
+        })
+      };
+
+    } finally {
+      clearTimeout(timeoutId);
     }
-    const { uri } = uploadResult;
-
-    // Prepare transaction
-    const transaction = createV1(umi, {
-      mint,
-      name,
-      symbol: 'TRUMPILLION',
-      uri,
-      sellerFeeBasisPoints: 500,
-      tokenStandard: TokenStandard.NonFungible,
-      creators: [{ address: walletPublicKey, share: 100, verified: true }]
-    }).toTransaction();
-
-    // Serialize transaction for client
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false
-    });
-
-    // Extract mint address
-    const mintAddress = mint.publicKey.toBase58();
-
-    return { 
-      statusCode: 200, 
-      headers: corsHeaders,
-      body: JSON.stringify({ 
-        transaction: serializedTransaction.toString('base64'),
-        mint: mintAddress
-      })
-    };
 
   } catch (error) {
     const errorMessage = getErrorMessage(error);
