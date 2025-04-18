@@ -15,14 +15,20 @@ interface MintRequest {
 
 export const useMintNft = () => {
   const mintNft = useCallback(async (wallet: WalletContextState, params: MintRequest): Promise<string> => {
-    if (!wallet.connected || !wallet.publicKey || !wallet.adapter?.signTransaction) {
+    // Check for both adapter.signTransaction and direct signTransaction
+    const hasSignTransaction =
+      typeof wallet.adapter?.signTransaction === 'function' ||
+      typeof (wallet as any).signTransaction === 'function';
+
+    if (!wallet.connected || !wallet.publicKey || !hasSignTransaction) {
+      console.error('signTransaction fehlt:', wallet);
       throw new Error('Wallet nicht korrekt verbunden');
     }
 
     const pubkey = getWalletPublicKey(wallet);
     if (!pubkey) throw new Error('WALLET_NOT_CONNECTED');
 
-    // 1. Generiere Mint-Signer im Frontend
+    // Generate Mint-Signer in Frontend
     const mintKeypair = Keypair.generate();
     const mintPublicKey = mintKeypair.publicKey.toBase58();
 
@@ -48,9 +54,17 @@ export const useMintNft = () => {
       const { transaction } = await response.json();
       const tx = Transaction.from(Buffer.from(transaction, 'base64'));
 
-      // 2. Unterschreibe mit Wallet (Phantom)
-      const signedTx = await wallet.adapter.signTransaction(tx);
-      if (!signedTx) throw new Error('Signatur fehlgeschlagen');
+      // Try both signature methods
+      let signedTx: Transaction | undefined;
+      if (wallet.adapter?.signTransaction) {
+        signedTx = await wallet.adapter.signTransaction(tx);
+      } else if (typeof (wallet as any).signTransaction === 'function') {
+        signedTx = await (wallet as any).signTransaction(tx);
+      }
+
+      if (!signedTx) {
+        throw new Error('Signatur fehlgeschlagen');
+      }
 
       const endpoint = await getRpcEndpoint();
       const connection = new Connection(endpoint, {
@@ -87,7 +101,9 @@ export const useMintNft = () => {
           action: 'mint_nft',
           wallet: pubkey.toBase58(),
           mint: mintPublicKey,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : 'Unknown error',
+          hasAdapterSignTransaction: !!wallet.adapter?.signTransaction,
+          hasDirectSignTransaction: typeof (wallet as any).signTransaction === 'function'
         }
       });
       throw new Error('NFT konnte nicht erstellt werden');
