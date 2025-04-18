@@ -86,7 +86,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    const walletPublicKey = wallet;
+    const walletPublicKey = publicKey(wallet);
 
     // Check pixel availability
     const { data: existingPixel } = await supabase
@@ -145,7 +145,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         properties: {
           files: [{ uri: imageUrl, type: contentType }],
           category: 'image',
-          creators: [{ address: wallet, share: 100 }]
+          creators: [{ address: walletPublicKey, share: 100 }]
         }
       };
 
@@ -167,7 +167,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         uri,
         sellerFeeBasisPoints: 500,
         tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: wallet, share: 100, verified: true }]
+        creators: [{ address: walletPublicKey, share: 100, verified: true }]
       }).toTransaction();
 
       // Serialize transaction for client
