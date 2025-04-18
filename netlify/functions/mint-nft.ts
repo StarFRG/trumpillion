@@ -6,6 +6,7 @@ import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
+import { PublicKey } from '@solana/web3.js';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
 if (!rpcUrl?.startsWith('http')) {
@@ -62,14 +63,26 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
 
     const { wallet, name, description, imageUrl, x, y } = body;
 
-    if (!wallet || typeof wallet !== 'string' || wallet.length < 32) {
+    // Validate wallet address
+    let walletPublicKey;
+    try {
+      // First validate as Solana public key
+      new PublicKey(wallet);
+      // Then convert to Umi public key
+      walletPublicKey = publicKey(wallet);
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Invalid wallet address'),
+        context: { action: 'validate_wallet', wallet }
+      });
       return { 
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('WALLET_NOT_CONNECTED') })
+        body: JSON.stringify({ error: getErrorMessage('INVALID_WALLET_ADDRESS') })
       };
     }
 
+    // Validate required fields
     if (!name || !description || !imageUrl) {
       return { 
         statusCode: 400,
@@ -78,6 +91,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
+    // Validate image URL format
     if (!/^https?:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
       return {
         statusCode: 400,
@@ -85,8 +99,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
       };
     }
-
-    const walletPublicKey = publicKey(wallet);
 
     // Check pixel availability
     const { data: existingPixel } = await supabase
