@@ -50,6 +50,11 @@ export const useWalletConnection = () => {
         throw new Error('Wallet verbunden, aber publicKey ist leer');
       }
 
+      // Zusätzlicher Check für signTransaction-Fähigkeit
+      if (!wallet.adapter?.signTransaction) {
+        throw new Error('Der verwendete Wallet-Adapter unterstützt keine Transaktionen. Bitte Phantom oder Solflare Desktop verwenden.');
+      }
+
       setReconnectAttempts(0);
       setIsReconnecting(false);
       setConnectionError(null);
@@ -64,7 +69,9 @@ export const useWalletConnection = () => {
           action: 'connect_wallet',
           attempt: reconnectAttempts + 1,
           walletType,
-          readyState: wallet.wallet?.readyState
+          readyState: wallet.wallet?.readyState,
+          hasAdapter: !!wallet.adapter,
+          hasSignTransaction: !!wallet.adapter?.signTransaction
         }
       });
 

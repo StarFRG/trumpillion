@@ -1,7 +1,7 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey, none } from '@metaplex-foundation/umi';
+import { createSignerFromKeypair, signerIdentity, publicKey, none } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { supabase } from './supabase-client';
@@ -25,6 +25,7 @@ const corsHeaders = {
 
 interface MintRequest {
   wallet: string;
+  mint: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -33,7 +34,6 @@ interface MintRequest {
 }
 
 export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
-  // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -51,7 +51,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
   }
 
   try {
-    // Safe JSON parsing
     let body: MintRequest;
     try {
       body = JSON.parse(event.body);
@@ -63,9 +62,8 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    const { wallet, name, description, imageUrl, x, y } = body;
+    const { wallet, name, description, imageUrl, x, y, mint } = body;
 
-    // Validate wallet address
     if (!wallet || typeof wallet !== 'string' || wallet.length < 32) {
       return { 
         statusCode: 400,
@@ -74,26 +72,16 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Validate required fields
-    if (!name || !description || !imageUrl) {
-      return { 
+    if (!mint || typeof mint !== 'string') {
+      return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: getErrorMessage('INVALID_INPUT') })
       };
     }
 
-    // Validate image URL format
-    if (!/^https:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
-      };
-    }
-
     const walletPublicKey = publicKey(wallet);
-    const walletBase58 = base58.serialize(walletPublicKey);
+    const mintSigner = publicKey(mint);
 
     // Check pixel availability
     const { data: existingPixel } = await supabase
@@ -157,7 +145,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         properties: {
           files: [{ uri: imageUrl, type: contentType }],
           category: 'image',
-          creators: [{ address: walletBase58, share: 100 }]
+          creators: [{ address: walletPublicKey.toString(), share: 100 }]
         }
       };
 
@@ -168,18 +156,15 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       }
       const { uri } = uploadResult;
 
-      // Create mint
-      const mint = generateSigner(umi);
-
       // Prepare transaction
       const transaction = createV1(umi, {
-        mint,
+        mint: mintSigner,
         name,
         symbol: 'TRUMPILLION',
         uri,
         sellerFeeBasisPoints: 500,
         tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletBase58, share: 100, verified: true }]
+        creators: [{ address: walletPublicKey, share: 100, verified: true }]
       }).toTransaction();
 
       // Serialize transaction for client
@@ -187,18 +172,12 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         requireAllSignatures: false
       });
 
-      // Extract mint address safely
-      const mintAddress = mint?.publicKey?.toBase58?.();
-      if (!mintAddress) {
-        throw new Error('MINT_FAILED');
-      }
-
       return { 
         statusCode: 200, 
         headers: corsHeaders,
         body: JSON.stringify({ 
           transaction: serializedTransaction.toString('base64'),
-          mint: mintAddress
+          mint: mint
         })
       };
 

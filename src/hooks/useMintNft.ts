@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { WalletContextState } from '@solana/wallet-adapter-react';
-import { Transaction, Connection } from '@solana/web3.js';
-import { getWalletPublicKey, isWalletConnected, getWalletAddressSafe } from '../utils/walletUtils';
+import { Transaction, Connection, Keypair } from '@solana/web3.js';
+import { getWalletPublicKey, isWalletConnected } from '../utils/walletUtils';
 import { monitoring } from '../services/monitoring';
 import { getRpcEndpoint } from '../lib/getRpcEndpoint';
 
@@ -15,77 +15,50 @@ interface MintRequest {
 
 export const useMintNft = () => {
   const mintNft = useCallback(async (wallet: WalletContextState, params: MintRequest): Promise<string> => {
-    // Grundlegende Wallet-Validierung
-    if (!wallet.connected || !wallet.publicKey) {
-      throw new Error('Wallet nicht verbunden');
-    }
-
-    // Adapter-Validierung
-    if (!wallet.adapter?.signTransaction) {
-      throw new Error('Wallet-Adapter unterstützt signTransaction nicht');
+    if (!wallet.connected || !wallet.publicKey || !wallet.adapter?.signTransaction) {
+      throw new Error('Wallet nicht korrekt verbunden');
     }
 
     const pubkey = getWalletPublicKey(wallet);
     if (!pubkey) throw new Error('WALLET_NOT_CONNECTED');
 
+    // 1. Generiere Mint-Signer im Frontend
+    const mintKeypair = Keypair.generate();
+    const mintPublicKey = mintKeypair.publicKey.toBase58();
+
     try {
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
-        headers: {
+        headers: { 
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
         body: JSON.stringify({
           wallet: pubkey.toBase58(),
+          mint: mintPublicKey,
           ...params
         })
       });
 
       if (!response.ok) {
-        let errMsg = 'Minting fehlgeschlagen';
-        try {
-          const err = await response.json();
-          errMsg = err.error || errMsg;
-
-          monitoring.logError({
-            error: new Error(errMsg),
-            context: {
-              action: 'mint_nft_response_error',
-              responseStatus: response.status,
-              responseBody: err,
-              wallet: getWalletAddressSafe(wallet),
-              params
-            }
-          });
-        } catch {
-          monitoring.logError({
-            error: new Error('Invalid JSON response'),
-            context: {
-              action: 'mint_nft_parse_error',
-              responseStatus: response.status,
-              wallet: getWalletAddressSafe(wallet),
-              params
-            }
-          });
-        }
-        throw new Error(errMsg);
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || 'Fehler beim Holen der Transaktion');
       }
 
-      const { transaction, mint } = await response.json();
+      const { transaction } = await response.json();
       const tx = Transaction.from(Buffer.from(transaction, 'base64'));
 
-      // Robuste Signierung mit Adapter
-      const signed = await wallet.adapter.signTransaction(tx);
-      if (!signed) throw new Error('Signatur fehlgeschlagen');
+      // 2. Unterschreibe mit Wallet (Phantom)
+      const signedTx = await wallet.adapter.signTransaction(tx);
+      if (!signedTx) throw new Error('Signatur fehlgeschlagen');
 
-      // QuickNode Verbindung statt Wallet-Adapter
       const endpoint = await getRpcEndpoint();
       const connection = new Connection(endpoint, {
         commitment: 'confirmed',
         confirmTransactionInitialTimeout: 60000
       });
 
-      const sig = await connection.sendRawTransaction(signed.serialize(), {
+      const sig = await connection.sendRawTransaction(signedTx.serialize(), {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
         maxRetries: 3
@@ -99,24 +72,21 @@ export const useMintNft = () => {
             action: 'mint_nft_confirmation',
             signature: sig,
             error: confirmation.value.err,
-            wallet: getWalletAddressSafe(wallet),
-            params
+            mint: mintPublicKey
           }
         });
         throw new Error('Transaction failed');
       }
 
-      return mint;
+      return mintPublicKey;
     } catch (error) {
       console.error('NFT Minting fehlgeschlagen:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('NFT Minting fehlgeschlagen'),
         context: { 
           action: 'mint_nft',
-          wallet: getWalletAddressSafe(wallet),
-          name: params.name,
-          x: params.x,
-          y: params.y,
+          wallet: pubkey.toBase58(),
+          mint: mintPublicKey,
           error: error instanceof Error ? error.message : 'Unknown error'
         }
       });
