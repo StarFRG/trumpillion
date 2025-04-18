@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { WalletContextState } from '@solana/wallet-adapter-react';
-import { Transaction, Connection, Keypair } from '@solana/web3.js';
+import { Transaction, Connection } from '@solana/web3.js';
 import { getWalletPublicKey, isWalletConnected } from '../utils/walletUtils';
 import { monitoring } from '../services/monitoring';
 import { getRpcEndpoint } from '../lib/getRpcEndpoint';
@@ -28,10 +28,6 @@ export const useMintNft = () => {
     const pubkey = getWalletPublicKey(wallet);
     if (!pubkey) throw new Error('WALLET_NOT_CONNECTED');
 
-    // Generate Mint-Signer in Frontend
-    const mintKeypair = Keypair.generate();
-    const mintPublicKey = mintKeypair.publicKey.toBase58();
-
     try {
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
@@ -41,7 +37,6 @@ export const useMintNft = () => {
         },
         body: JSON.stringify({
           wallet: pubkey.toBase58(),
-          mint: mintPublicKey,
           ...params
         })
       });
@@ -51,7 +46,7 @@ export const useMintNft = () => {
         throw new Error(err?.error || 'Fehler beim Holen der Transaktion');
       }
 
-      const { transaction } = await response.json();
+      const { transaction, mint } = await response.json();
       const tx = Transaction.from(Buffer.from(transaction, 'base64'));
 
       // Try both signature methods
@@ -86,13 +81,13 @@ export const useMintNft = () => {
             action: 'mint_nft_confirmation',
             signature: sig,
             error: confirmation.value.err,
-            mint: mintPublicKey
+            mint
           }
         });
         throw new Error('Transaction failed');
       }
 
-      return mintPublicKey;
+      return mint;
     } catch (error) {
       console.error('NFT Minting fehlgeschlagen:', error);
       monitoring.logError({
@@ -100,7 +95,6 @@ export const useMintNft = () => {
         context: { 
           action: 'mint_nft',
           wallet: pubkey.toBase58(),
-          mint: mintPublicKey,
           error: error instanceof Error ? error.message : 'Unknown error',
           hasAdapterSignTransaction: !!wallet.adapter?.signTransaction,
           hasDirectSignTransaction: typeof (wallet as any).signTransaction === 'function'

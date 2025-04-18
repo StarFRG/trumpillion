@@ -1,7 +1,7 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { createSignerFromKeypair, signerIdentity, publicKey, none } from '@metaplex-foundation/umi';
+import { signerIdentity, generateSigner, publicKey, none } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { base58 } from '@metaplex-foundation/umi/serializers';
 import { supabase } from './supabase-client';
@@ -25,7 +25,6 @@ const corsHeaders = {
 
 interface MintRequest {
   wallet: string;
-  mint: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -62,7 +61,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    const { wallet, name, description, imageUrl, x, y, mint } = body;
+    const { wallet, name, description, imageUrl, x, y } = body;
 
     if (!wallet || typeof wallet !== 'string' || wallet.length < 32) {
       return { 
@@ -72,8 +71,8 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    if (!mint || typeof mint !== 'string') {
-      return {
+    if (!name || !description || !imageUrl) {
+      return { 
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: getErrorMessage('INVALID_INPUT') })
@@ -81,7 +80,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     }
 
     const walletPublicKey = publicKey(wallet);
-    const mintSigner = publicKey(mint);
+    const walletBase58 = base58.serialize(walletPublicKey);
 
     // Check pixel availability
     const { data: existingPixel } = await supabase
@@ -91,7 +90,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       .eq('y', y)
       .maybeSingle();
 
-    if (existingPixel) {
+    if (existingPixel?.owner) {
       return { 
         statusCode: 400,
         headers: corsHeaders,
@@ -99,91 +98,60 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Validate and load image with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    // Generate mint keypair in backend
+    const mint = generateSigner(umi);
 
-    try {
-      const imageResponse = await fetch(imageUrl, {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'image/*',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Trumpillion/1.0'
-        }
-      });
-
-      if (!imageResponse.ok) {
-        monitoring.logErrorWithContext(new Error('IMAGE_FETCH_FAILED'), 'mint-nft.ts:fetch', {
-          imageUrl,
-          status: imageResponse.status
-        });
-        throw new Error('UPLOAD_FAILED');
+    // Prepare metadata
+    const metadata = {
+      name,
+      symbol: 'TRUMPILLION',
+      description,
+      image: imageUrl,
+      attributes: [
+        { trait_type: 'X Coordinate', value: x.toString() },
+        { trait_type: 'Y Coordinate', value: y.toString() }
+      ],
+      properties: {
+        files: [{ uri: imageUrl, type: 'image/jpeg' }],
+        category: 'image',
+        creators: [{ address: walletBase58, share: 100 }]
       }
+    };
 
-      const imageBuffer = await imageResponse.arrayBuffer();
-      const contentType = imageResponse.headers.get('Content-Type') || 'image/jpeg';
-
-      if (imageBuffer.byteLength > 10 * 1024 * 1024) {
-        return { 
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
-        };
-      }
-
-      // Prepare metadata
-      const metadata = {
-        name,
-        symbol: 'TRUMPILLION',
-        description,
-        image: imageUrl,
-        attributes: [
-          { trait_type: 'X Coordinate', value: x.toString() },
-          { trait_type: 'Y Coordinate', value: y.toString() }
-        ],
-        properties: {
-          files: [{ uri: imageUrl, type: contentType }],
-          category: 'image',
-          creators: [{ address: walletPublicKey.toString(), share: 100 }]
-        }
-      };
-
-      // Upload metadata
-      const uploadResult = await umi.uploader.uploadJson(metadata);
-      if (!uploadResult?.uri) {
-        throw new Error('UPLOAD_FAILED');
-      }
-      const { uri } = uploadResult;
-
-      // Prepare transaction
-      const transaction = createV1(umi, {
-        mint: mintSigner,
-        name,
-        symbol: 'TRUMPILLION',
-        uri,
-        sellerFeeBasisPoints: 500,
-        tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletPublicKey, share: 100, verified: true }]
-      }).toTransaction();
-
-      // Serialize transaction for client
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false
-      });
-
-      return { 
-        statusCode: 200, 
-        headers: corsHeaders,
-        body: JSON.stringify({ 
-          transaction: serializedTransaction.toString('base64'),
-          mint: mint
-        })
-      };
-
-    } finally {
-      clearTimeout(timeoutId);
+    // Upload metadata
+    const uploadResult = await umi.uploader.uploadJson(metadata);
+    if (!uploadResult?.uri) {
+      throw new Error('UPLOAD_FAILED');
     }
+    const { uri } = uploadResult;
+
+    // Prepare transaction
+    const transaction = createV1(umi, {
+      mint,
+      name,
+      symbol: 'TRUMPILLION',
+      uri,
+      sellerFeeBasisPoints: 500,
+      tokenStandard: TokenStandard.NonFungible,
+      creators: [{ address: walletPublicKey, share: 100, verified: true }]
+    }).toTransaction();
+
+    // Serialize transaction for client
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false
+    });
+
+    // Extract mint address
+    const mintAddress = mint.publicKey.toBase58();
+
+    return { 
+      statusCode: 200, 
+      headers: corsHeaders,
+      body: JSON.stringify({ 
+        transaction: serializedTransaction.toString('base64'),
+        mint: mintAddress
+      })
+    };
 
   } catch (error) {
     const errorMessage = getErrorMessage(error);
