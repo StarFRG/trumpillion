@@ -15,8 +15,14 @@ interface MintRequest {
 
 export const useMintNft = () => {
   const mintNft = useCallback(async (wallet: WalletContextState, params: MintRequest): Promise<string> => {
-    if (!isWalletConnected(wallet)) {
-      throw new Error('WALLET_NOT_CONNECTED');
+    // Grundlegende Wallet-Validierung
+    if (!wallet.connected || !wallet.publicKey) {
+      throw new Error('Wallet nicht verbunden');
+    }
+
+    // Adapter-Validierung
+    if (!wallet.adapter?.signTransaction) {
+      throw new Error('Wallet-Adapter unterstützt signTransaction nicht');
     }
 
     const pubkey = getWalletPublicKey(wallet);
@@ -52,7 +58,6 @@ export const useMintNft = () => {
             }
           });
         } catch {
-          // Fallback wenn response kein valides JSON enthält
           monitoring.logError({
             error: new Error('Invalid JSON response'),
             context: {
@@ -68,10 +73,12 @@ export const useMintNft = () => {
 
       const { transaction, mint } = await response.json();
       const tx = Transaction.from(Buffer.from(transaction, 'base64'));
-      const signed = await wallet.signTransaction?.(tx);
+
+      // Robuste Signierung mit Adapter
+      const signed = await wallet.adapter.signTransaction(tx);
       if (!signed) throw new Error('Signatur fehlgeschlagen');
 
-      // Use QuickNode endpoint instead of wallet adapter connection
+      // QuickNode Verbindung statt Wallet-Adapter
       const endpoint = await getRpcEndpoint();
       const connection = new Connection(endpoint, {
         commitment: 'confirmed',
