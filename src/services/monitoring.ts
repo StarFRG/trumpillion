@@ -12,7 +12,9 @@ interface ErrorDetails {
 }
 
 class MonitoringService {
-  private isDevelopment = import.meta.env.DEV;
+  private isDevelopment = typeof process !== 'undefined'
+    ? process.env.NODE_ENV !== 'production'
+    : typeof import.meta !== 'undefined' && import.meta.env?.DEV;
 
   logError({ error, context = {}, level = 'error', user }: ErrorDetails) {
     if (this.isDevelopment) {
@@ -51,6 +53,11 @@ class MonitoringService {
   }
 
   setUser(user: { id?: string; wallet?: string; email?: string; } | null) {
+    if (this.isDevelopment) {
+      console.log('Setting user:', user);
+      return;
+    }
+
     if (user) {
       Sentry.setUser(user);
     } else {
@@ -69,9 +76,43 @@ class MonitoringService {
       return;
     }
 
-    Sentry.captureException(err instanceof Error ? err : new Error(String(err)), {
+    const error = err instanceof Error ? err : new Error(String(err));
+    
+    Sentry.captureException(error, {
       tags: { location },
-      extra: context,
+      extra: {
+        ...context,
+        errorMessage: error.message,
+        errorStack: error.stack
+      }
+    });
+  }
+
+  clearUser() {
+    if (this.isDevelopment) {
+      console.log('Clearing user');
+      return;
+    }
+
+    Sentry.setUser(null);
+  }
+
+  addBreadcrumb(
+    message: string,
+    category?: string,
+    level: Sentry.SeverityLevel = 'info',
+    data?: Record<string, any>
+  ) {
+    if (this.isDevelopment) {
+      console.log(`Breadcrumb [${category}]:`, message, data);
+      return;
+    }
+
+    Sentry.addBreadcrumb({
+      message,
+      category,
+      level,
+      data
     });
   }
 }
