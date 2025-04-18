@@ -16,7 +16,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
   const { wallet } = useWalletConnection();
 
   const handleFileSelect = useCallback((file: File) => {
@@ -67,7 +66,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       }
 
       const publicUrl = data.publicUrl;
-      setUploadedUrl(publicUrl);
+      onSuccess(publicUrl);
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -82,7 +81,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onError, wallet]);
+  }, [coordinates, onSuccess, onError, wallet]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -161,20 +160,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
           </div>
         )}
       </div>
-
-      {uploadedUrl && !uploading && (
-        <>
-          <button
-            onClick={() => onSuccess(uploadedUrl)}
-            className="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded mt-4"
-          >
-            Weiter zum Minting
-          </button>
-          <p className="text-sm text-green-400 mt-2 text-center">
-            Upload erfolgreich! Jetzt kannst du deinen Moment minten.
-          </p>
-        </>
-      )}
     </div>
   );
 };
