@@ -8,7 +8,7 @@ import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
 import { PublicKey } from '@solana/web3.js';
 import { Keypair as Web3Keypair } from '@solana/web3.js';
-import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters';
+import { web3JsKeypairIdentity } from '@metaplex-foundation/umi-web3js-adapters';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
 if (!rpcUrl?.startsWith('http')) {
@@ -30,8 +30,8 @@ try {
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
   console.log('[DEBUG] Erste Bytes:', secretKey.slice(0, 5));
   
-  const feePayer = fromWeb3JsKeypair(umi, Web3Keypair.fromSecretKey(Uint8Array.from(secretKey)));
-  umi.use(signerIdentity(feePayer));
+  const feePayer = Web3Keypair.fromSecretKey(Uint8Array.from(secretKey));
+  umi.use(web3JsKeypairIdentity(feePayer));
 } catch (error) {
   monitoring.logError({
     error: error instanceof Error ? error : new Error('Failed to initialize fee payer'),
