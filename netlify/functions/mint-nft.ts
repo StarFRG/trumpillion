@@ -1,14 +1,11 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
+import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey, createKeypairFromSecretKey } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
-import { PublicKey } from '@solana/web3.js';
-import { Keypair as Web3Keypair } from '@solana/web3.js';
-import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
 if (!rpcUrl?.startsWith('http')) {
@@ -29,16 +26,8 @@ try {
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY:', secretKey);
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
 
-  let web3Keypair;
-  if (secretKey.length === 64) {
-    web3Keypair = Web3Keypair.fromSecretKey(Uint8Array.from(secretKey));
-  } else if (secretKey.length === 32) {
-    web3Keypair = Web3Keypair.fromSeed(Uint8Array.from(secretKey));
-  } else {
-    throw new Error('FEE_PAYER_PRIVATE_KEY must be an array of 32 or 64 numbers');
-  }
-
-  const feePayer = fromWeb3JsKeypair(umi, web3Keypair);
+  const keypair = createKeypairFromSecretKey(Uint8Array.from(secretKey));
+  const feePayer = createSignerFromKeypair(umi, keypair);
   umi.use(signerIdentity(feePayer));
 } catch (error) {
   monitoring.logError({
@@ -98,9 +87,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     // Validate wallet address
     let walletPublicKey;
     try {
-      // First validate as Solana public key
-      new PublicKey(wallet);
-      // Then convert to Umi public key
       walletPublicKey = publicKey(wallet);
     } catch (error) {
       monitoring.logError({
@@ -220,7 +206,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       });
 
       // Extract mint address safely
-      const mintAddress = mint?.publicKey?.toBase58?.();
+      const mintAddress = mint?.publicKey?.toString();
       if (!mintAddress) {
         throw new Error('MINT_FAILED');
       }
