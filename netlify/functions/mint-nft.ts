@@ -3,7 +3,7 @@ import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
-import { createKeypairFromSecretKey } from '@metaplex-foundation/umi/serializers';
+import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-web3js-adapters';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
