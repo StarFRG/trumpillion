@@ -2,8 +2,9 @@ import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
+import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters';
+import { Keypair as Web3Keypair } from '@solana/web3.js';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
-import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-web3js-adapters';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
@@ -22,13 +23,12 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 }
 
 try {
-  const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY);
+  const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY!);
 
-  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY:', secretKey);
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
 
-  const keypair = createKeypairFromSecretKey(Uint8Array.from(secretKey));
-  const feePayer = createSignerFromKeypair(umi, keypair);
+  const web3Keypair = Web3Keypair.fromSecretKey(Uint8Array.from(secretKey));
+  const feePayer = fromWeb3JsKeypair(umi, web3Keypair);
   umi.use(signerIdentity(feePayer));
 } catch (error) {
   monitoring.logError({
