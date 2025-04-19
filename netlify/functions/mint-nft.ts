@@ -25,12 +25,20 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 
 try {
   const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY);
-  
-  // Debug logging
+
+  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY:', secretKey);
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
-  console.log('[DEBUG] Erste Bytes:', secretKey.slice(0, 5));
-  
-  const feePayer = fromWeb3JsKeypair(umi, Web3Keypair.fromSecretKey(Uint8Array.from(secretKey)));
+
+  let web3Keypair;
+  if (secretKey.length === 64) {
+    web3Keypair = Web3Keypair.fromSecretKey(Uint8Array.from(secretKey));
+  } else if (secretKey.length === 32) {
+    web3Keypair = Web3Keypair.fromSeed(Uint8Array.from(secretKey));
+  } else {
+    throw new Error('FEE_PAYER_PRIVATE_KEY must be an array of 32 or 64 numbers');
+  }
+
+  const feePayer = fromWeb3JsKeypair(umi, web3Keypair);
   umi.use(signerIdentity(feePayer));
 } catch (error) {
   monitoring.logError({
