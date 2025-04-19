@@ -25,6 +25,11 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 
 try {
   const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY);
+  
+  // Debug logging
+  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
+  console.log('[DEBUG] Erste Bytes:', secretKey.slice(0, 5));
+  
   const feePayer = fromWeb3JsKeypair(umi, Web3Keypair.fromSecretKey(Uint8Array.from(secretKey)));
   umi.use(signerIdentity(feePayer));
 } catch (error) {
