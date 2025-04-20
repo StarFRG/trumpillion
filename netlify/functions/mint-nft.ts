@@ -1,7 +1,7 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey, createKeypairFromSecretKey } from '@metaplex-foundation/umi';
+import * as umi from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
@@ -13,7 +13,7 @@ if (!rpcUrl?.startsWith('http')) {
 }
 
 // Initialize Umi with fee payer
-const umi = createUmi(rpcUrl).use(irysUploader());
+const umiInstance = createUmi(rpcUrl).use(irysUploader());
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
@@ -21,13 +21,12 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 }
 
 try {
-  const secretKey = JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY!);
-
+  const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY!));
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
 
-  const umiKeypair = createKeypairFromSecretKey(Uint8Array.from(secretKey));
-  const signer = createSignerFromKeypair(umi, umiKeypair);
-  umi.use(signerIdentity(signer));
+  const keypair = umi.createKeypairFromSecretKey(secretKey);
+  const signer = umi.createSignerFromKeypair(umiInstance, keypair);
+  umiInstance.use(umi.signerIdentity(signer));
 } catch (error) {
   monitoring.logError({
     error: error instanceof Error ? error : new Error('Failed to initialize fee payer'),
@@ -86,7 +85,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     // Validate wallet address
     let walletPublicKey;
     try {
-      walletPublicKey = publicKey(wallet);
+      walletPublicKey = umi.publicKey(wallet);
     } catch (error) {
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Invalid wallet address'),
@@ -179,17 +178,17 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
 
       // Upload metadata
-      const uploadResult = await umi.uploader.uploadJson(metadata);
+      const uploadResult = await umiInstance.uploader.uploadJson(metadata);
       if (!uploadResult?.uri) {
         throw new Error('UPLOAD_FAILED');
       }
       const { uri } = uploadResult;
 
       // Generate mint
-      const mint = generateSigner(umi);
+      const mint = umi.generateSigner(umiInstance);
 
       // Prepare transaction
-      const transaction = createV1(umi, {
+      const transaction = createV1(umiInstance, {
         mint,
         name,
         symbol: 'TRUMPILLION',
