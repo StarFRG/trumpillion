@@ -4,7 +4,6 @@ import { usePixelStore } from '../../store/pixelStore';
 import { getSupabase } from '../../lib/supabase';
 import { monitoring } from '../../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
-import { useMintNft } from '../../hooks/useMintNft';
 import { validateFile } from '../../utils/validation';
 import { X, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -23,7 +22,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const { t } = useTranslation();
   const { wallet, isConnecting, connectionError } = useWalletConnection();
   const { findAvailablePixel } = usePixelStore();
-  const { mintNft } = useMintNft();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -247,20 +245,34 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setError(null);
 
     try {
-      // Step 1: Process payment
+      // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Step 2: Mint NFT
-      const mintAddress = await mintNft(wallet, {
-        name: title,
-        description,
-        imageUrl: uploadedImageUrl,
-        x: selectedCoordinates.x,
-        y: selectedCoordinates.y
+      // Call mint-nft function
+      const response = await fetch('/.netlify/functions/mint-nft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          wallet: wallet.publicKey.toString(),
+          name: title,
+          description,
+          imageUrl: uploadedImageUrl,
+          x: selectedCoordinates.x,
+          y: selectedCoordinates.y
+        })
       });
 
-      const nftUrl = `https://solscan.io/token/${mintAddress}`;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'MINT_FAILED');
+      }
+
+      const { mint } = await response.json();
+      const nftUrl = `https://solscan.io/token/${mint}`;
       setNftUrl(nftUrl);
 
       const supabase = await getSupabase();
@@ -282,7 +294,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             action: 'upsert_pixel',
             coordinates: selectedCoordinates,
             wallet: getWalletAddress(wallet),
-            mint_address: mintAddress
+            mint_address: mint
           }
         });
         throw dbError;
@@ -310,7 +322,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setLoading(false);
       setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, mintNft, loading, processingPayment]);
+  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, loading, processingPayment]);
 
   if (!isOpen) return null;
 

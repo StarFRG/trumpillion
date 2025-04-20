@@ -1,9 +1,10 @@
 import { Handler } from '@netlify/functions';
-import { createUmi, createSignerFromKeypair } from '@metaplex-foundation/umi';
+import { createSignerFromKeypair, generateSigner } from '@metaplex-foundation/umi';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-bundle-defaults';
 import { signerIdentity } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
+import { TokenStandard, createV1, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
@@ -16,6 +17,7 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 const rpcUrl = process.env.SOLANA_RPC_URL!;
 const umi = createUmi(rpcUrl);
 umi.use(irysUploader());
+umi.use(mplTokenMetadata());
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
@@ -191,36 +193,25 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       const { uri } = uploadResult;
 
       // Generate mint
-      const mint = umi.generateSigner(umi);
+      const mint = generateSigner(umi);
 
-      // Prepare transaction
-      const transaction = createV1(umi, {
+      // Mint NFT
+      await createV1(umi, {
         mint,
         name,
         symbol: 'TRUMPILLION',
         uri,
         sellerFeeBasisPoints: 500,
         tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletPublicKey.toString(), share: 100, verified: true }]
-      }).toTransaction();
-
-      // Serialize transaction for client
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false
-      });
-
-      // Extract mint address safely
-      const mintAddress = mint?.publicKey?.toString();
-      if (!mintAddress) {
-        throw new Error('MINT_FAILED');
-      }
+        creators: [{ address: walletPublicKey, share: 100, verified: true }]
+      }).sendAndConfirm(umi);
 
       return { 
         statusCode: 200, 
         headers: corsHeaders,
-        body: JSON.stringify({ 
-          transaction: serializedTransaction.toString('base64'),
-          mint: mintAddress
+        body: JSON.stringify({
+          success: true,
+          mint: mint.publicKey.toString()
         })
       };
 
