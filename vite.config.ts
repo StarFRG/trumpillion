@@ -5,7 +5,6 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   plugins: [
     react({
-      // Add fast refresh options to prevent timer-related issues
       fastRefresh: true,
     }),
     VitePWA({
@@ -46,7 +45,7 @@ export default defineConfig({
               networkTimeoutSeconds: 10,
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 24 * 60 * 60 // 24 hours
+                maxAgeSeconds: 24 * 60 * 60
               }
             }
           },
@@ -57,7 +56,7 @@ export default defineConfig({
               cacheName: 'image-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60 // 1 week
+                maxAgeSeconds: 7 * 24 * 60 * 60
               }
             }
           }
@@ -87,8 +86,9 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     hmr: {
-      // Add HMR options to prevent timer-related issues
       timeout: 120000,
+      overlay: true,
+      clientPort: 5173
     }
   },
   preview: {

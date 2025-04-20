@@ -1,6 +1,6 @@
 import { Handler } from '@netlify/functions';
 import { createUmi, createSignerFromKeypair } from '@metaplex-foundation/umi';
-import { createHttpRpc } from '@metaplex-foundation/umi-rpc';
+import { createHttpRpc } from '@metaplex-foundation/umi-bundle-defaults';
 import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-bundle-defaults';
 import { signerIdentity } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
