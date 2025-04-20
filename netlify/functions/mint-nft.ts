@@ -1,5 +1,5 @@
 import { Handler } from '@netlify/functions';
-import { createUmi } from '@metaplex-foundation/umi';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { createSignerFromKeypair, generateSigner } from '@metaplex-foundation/umi';
 import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-bundle-defaults';
 import { signerIdentity } from '@metaplex-foundation/umi';
@@ -15,9 +15,8 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 
 // Initialize Umi with RPC
 const rpcUrl = process.env.SOLANA_RPC_URL!;
-const umi = createUmi(rpcUrl);
+const umi = createUmi(rpcUrl).use(mplTokenMetadata());
 umi.use(irysUploader());
-umi.use(mplTokenMetadata());
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
