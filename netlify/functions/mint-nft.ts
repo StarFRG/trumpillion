@@ -1,6 +1,6 @@
 import { Handler } from '@netlify/functions';
+import { createUmi } from '@metaplex-foundation/umi';
 import { createSignerFromKeypair, generateSigner } from '@metaplex-foundation/umi';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-bundle-defaults';
 import { signerIdentity } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
@@ -25,15 +25,15 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 }
 
 try {
-  // Secret aus Umgebungsvariable laden
+  // Load secret from environment variable
   const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY));
-  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
+  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY length:', secretKey.length);
 
-  // Keypair + Signer erzeugen
+  // Create keypair and signer
   const keypair = createKeypairFromSecretKey(secretKey);
   const signer = createSignerFromKeypair(umi, keypair);
 
-  // Signer aktivieren
+  // Activate signer
   umi.use(signerIdentity(signer));
 } catch (error) {
   monitoring.logError({
