@@ -3,11 +3,12 @@ import {
   createUmi,
   createSignerFromKeypair,
   createKeypairFromSecretKey,
-  signerIdentity,
-  generateSigner
-} from '@metaplex-foundation/umi-bundle-defaults';
+  signerIdentity
+} from '@metaplex-foundation/umi';
+import { web3JsRpc } from '@metaplex-foundation/umi-rpc-web3js';
+import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { TokenStandard, createV1, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
+import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
@@ -17,9 +18,10 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 }
 
 // Initialize Umi with RPC
-const rpcUrl = process.env.SOLANA_RPC_URL!;
-const umi = createUmi(rpcUrl).use(mplTokenMetadata());
-umi.use(irysUploader());
+const umi = createUmi(process.env.SOLANA_RPC_URL!)
+  .use(web3JsRpc())
+  .use(mplTokenMetadata())
+  .use(irysUploader());
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
@@ -27,15 +29,9 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 }
 
 try {
-  // Load secret from environment variable
   const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY));
-  console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY length:', secretKey.length);
-
-  // Create keypair and signer
   const keypair = createKeypairFromSecretKey(secretKey);
   const signer = createSignerFromKeypair(umi, keypair);
-
-  // Activate signer
   umi.use(signerIdentity(signer));
 } catch (error) {
   monitoring.logError({
@@ -195,7 +191,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       const { uri } = uploadResult;
 
       // Generate mint
-      const mint = generateSigner(umi);
+      const mint = umi.eddsa.generateKeypair();
 
       // Mint NFT
       await createV1(umi, {
