@@ -1,19 +1,20 @@
 import { Handler } from '@netlify/functions';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { createUmi, createSignerFromKeypair } from '@metaplex-foundation/umi';
+import { createKeypairFromSecretKey } from '@metaplex-foundation/umi-bundle-defaults';
+import { signerIdentity } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import * as umi from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
 
-const rpcUrl = process.env.SOLANA_RPC_URL;
-if (!rpcUrl?.startsWith('http')) {
+if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
   throw new Error('Missing or invalid Solana RPC URL');
 }
 
-// Initialize Umi with fee payer
-const umiInstance = createUmi(rpcUrl).use(irysUploader());
+// Initialize Umi
+const umi = createUmi(process.env.SOLANA_RPC_URL);
+umi.use(irysUploader());
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
@@ -21,12 +22,16 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 }
 
 try {
-  const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY!));
+  // Secret aus Umgebungsvariable laden
+  const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY));
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
 
-  const keypair = umi.createKeypairFromSecretKey(secretKey);
-  const signer = umi.createSignerFromKeypair(umiInstance, keypair);
-  umiInstance.use(umi.signerIdentity(signer));
+  // Keypair + Signer erzeugen
+  const keypair = createKeypairFromSecretKey(secretKey);
+  const signer = createSignerFromKeypair(umi, keypair);
+
+  // Signer aktivieren
+  umi.use(signerIdentity(signer));
 } catch (error) {
   monitoring.logError({
     error: error instanceof Error ? error : new Error('Failed to initialize fee payer'),
@@ -178,17 +183,17 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
 
       // Upload metadata
-      const uploadResult = await umiInstance.uploader.uploadJson(metadata);
+      const uploadResult = await umi.uploader.uploadJson(metadata);
       if (!uploadResult?.uri) {
         throw new Error('UPLOAD_FAILED');
       }
       const { uri } = uploadResult;
 
       // Generate mint
-      const mint = umi.generateSigner(umiInstance);
+      const mint = umi.generateSigner(umi);
 
       // Prepare transaction
-      const transaction = createV1(umiInstance, {
+      const transaction = createV1(umi, {
         mint,
         name,
         symbol: 'TRUMPILLION',
