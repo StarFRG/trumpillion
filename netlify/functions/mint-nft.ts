@@ -1,8 +1,11 @@
 import { Handler } from '@netlify/functions';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { createSignerFromKeypair, generateSigner } from '@metaplex-foundation/umi';
-import { createKeypairFromSecretKey } from '@metaplex-foundation/umi';
-import { signerIdentity } from '@metaplex-foundation/umi';
+import {
+  createUmi,
+  createSignerFromKeypair,
+  createKeypairFromSecretKey,
+  signerIdentity,
+  generateSigner
+} from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
