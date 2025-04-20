@@ -4,7 +4,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      // Add fast refresh options to prevent timer-related issues
+      fastRefresh: true,
+    }),
     VitePWA({
       registerType: 'prompt',
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
@@ -43,7 +46,7 @@ export default defineConfig({
               networkTimeoutSeconds: 10,
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 24 * 60 * 60 // 24 Stunden
+                maxAgeSeconds: 24 * 60 * 60 // 24 hours
               }
             }
           },
@@ -54,7 +57,7 @@ export default defineConfig({
               cacheName: 'image-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60 // 1 Woche
+                maxAgeSeconds: 7 * 24 * 60 * 60 // 1 week
               }
             }
           }
@@ -82,7 +85,11 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    hmr: {
+      // Add HMR options to prevent timer-related issues
+      timeout: 120000,
+    }
   },
   preview: {
     host: true,

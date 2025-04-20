@@ -1,9 +1,7 @@
 import { Handler } from '@netlify/functions';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
-import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey } from '@metaplex-foundation/umi';
-import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters';
-import { Keypair as Web3Keypair } from '@solana/web3.js';
+import { createSignerFromKeypair, signerIdentity, generateSigner, publicKey, createKeypairFromSecretKey } from '@metaplex-foundation/umi';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
@@ -27,9 +25,9 @@ try {
 
   console.log('[DEBUG] FEE_PAYER_PRIVATE_KEY Länge:', secretKey.length);
 
-  const web3Keypair = Web3Keypair.fromSecretKey(Uint8Array.from(secretKey));
-  const feePayer = fromWeb3JsKeypair(umi, web3Keypair);
-  umi.use(signerIdentity(feePayer));
+  const umiKeypair = createKeypairFromSecretKey(Uint8Array.from(secretKey));
+  const signer = createSignerFromKeypair(umi, umiKeypair);
+  umi.use(signerIdentity(signer));
 } catch (error) {
   monitoring.logError({
     error: error instanceof Error ? error : new Error('Failed to initialize fee payer'),
