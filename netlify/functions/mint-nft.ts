@@ -5,7 +5,6 @@ import {
   createKeypairFromSecretKey,
   signerIdentity
 } from '@metaplex-foundation/umi';
-import { web3JsRpc } from '@metaplex-foundation/umi-rpc-web3js';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
@@ -19,7 +18,6 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 
 // Initialize Umi with RPC
 const umi = createUmi(process.env.SOLANA_RPC_URL)
-  .use(web3JsRpc({ rpcEndpoint: process.env.SOLANA_RPC_URL }))
   .use(mplTokenMetadata())
   .use(irysUploader());
 
