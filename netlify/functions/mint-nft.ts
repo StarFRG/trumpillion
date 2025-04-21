@@ -1,10 +1,9 @@
 import { Handler } from '@netlify/functions';
 import {
-  createUmi,
   createSignerFromKeypair,
-  createKeypairFromSecretKey,
   signerIdentity
 } from '@metaplex-foundation/umi';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { web3JsRpc } from '@metaplex-foundation/umi-rpc-web3js';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
