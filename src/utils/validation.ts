@@ -42,8 +42,25 @@ export const validatePixel = (data: unknown): boolean => {
 };
 
 export const validateFile = (file: File): void => {
+  // Get MIME type from file extension if file.type is empty
+  const getMimeTypeFromExtension = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return '';
+    }
+  };
+
+  const inferredType = file.type || getMimeTypeFromExtension(file.name);
   const validation = FileValidationSchema.safeParse({
-    type: file.type,
+    type: inferredType,
     size: file.size,
     name: file.name.toLowerCase()
   });
@@ -53,6 +70,14 @@ export const validateFile = (file: File): void => {
       .map(err => err.message)
       .join(', ');
     throw new Error(errorMessage);
+  }
+
+  // Set file.type if it's missing
+  if (!file.type && inferredType) {
+    Object.defineProperty(file, 'type', {
+      value: inferredType,
+      writable: false
+    });
   }
 };
 
