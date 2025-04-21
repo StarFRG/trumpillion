@@ -100,6 +100,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     try {
       validateFile(file);
       
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
+
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -133,6 +137,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setLoading(true);
       setError(null);
 
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
+
       const supabase = await getSupabase();
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
@@ -141,7 +149,8 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
 
       if (storageError) throw storageError;
@@ -159,7 +168,11 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { action: 'upload_image' }
+        context: { 
+          action: 'upload_image',
+          coordinates: selectedCoordinates,
+          wallet: getWalletAddress(wallet)
+        }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
@@ -273,7 +286,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
-      setNftUrl(nftUrl);
 
       const supabase = await getSupabase();
       
@@ -414,7 +426,9 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
                   <img 
                     src={previewUrl} 
                     alt="Preview" 
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object
+
+-contain"
                   />
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                     <p className="text-white text-sm">Click to choose another image</p>

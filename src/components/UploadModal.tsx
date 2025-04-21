@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { useWalletConnection } from '../hooks/useWalletConnection';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
@@ -10,7 +10,6 @@ import { toast } from 'react-hot-toast';
 import { getErrorMessage } from '../utils/errorMessages';
 import { WalletValidationService } from '../services/wallet';
 import { solanaService } from '../services/solana';
-import { useWallet } from '@solana/wallet-adapter-react';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -132,6 +131,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     try {
       validateFile(file);
       
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
+
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -163,6 +166,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('INVALID_COORDINATES');
       }
 
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
+
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
@@ -175,7 +182,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
 
       if (storageError) throw storageError;

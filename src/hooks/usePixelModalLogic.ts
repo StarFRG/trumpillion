@@ -16,27 +16,18 @@ export const usePixelModalLogic = (onClose: () => void) => {
   const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
     try {
       if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet ist nicht verbunden oder ungültig');
+        throw new Error('Wallet ist nicht verbunden');
       }
 
       validateFile(file);
       setUploading(true);
       setError(null);
 
-      const supabase = await getSupabase();
-      
-      // Check if pixel is already taken
-      const { data: existingPixel } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .maybeSingle();
-
-      if (existingPixel?.owner) {
-        throw new Error('This pixel is already owned');
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
       }
 
+      const supabase = await getSupabase();
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
         throw new Error('Dateiendung konnte nicht ermittelt werden');
@@ -44,12 +35,9 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
-      // Check for and remove existing file
-      const { data: existingFiles } = await supabase.storage
-        .from('pixel-images')
-        .list('', { search: fileName });
-
-      if (existingFiles?.length) {
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
@@ -57,7 +45,8 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
 
       if (storageError) throw storageError;
@@ -73,11 +62,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const publicUrl = publicData.publicUrl;
       setImageUrl(publicUrl);
 
-      monitoring.logEvent('upload_completed', {
-        imageUrl: publicUrl,
-        coordinates,
-        wallet: getWalletAddress(wallet)
-      });
+      return publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -89,6 +74,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
     } finally {
       setUploading(false);
     }
@@ -182,12 +168,20 @@ export const usePixelModalLogic = (onClose: () => void) => {
     }
   }, [wallet, imageUrl]);
 
+  const cleanup = useCallback(() => {
+    setError(null);
+    setImageUrl(null);
+    setUploading(false);
+    setProcessingPayment(false);
+  }, []);
+
   return {
     uploading,
     error,
     imageUrl,
     processingPayment,
     handleUpload,
-    handleSubmit
+    handleSubmit,
+    cleanup
   };
 };

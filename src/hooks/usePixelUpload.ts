@@ -23,6 +23,10 @@ export const usePixelUpload = () => {
       setUploading(true);
       setError(null);
 
+      if (!file.type.startsWith('image/')) {
+        throw new Error('INVALID_IMAGE');
+      }
+
       const supabase = await getSupabase();
       
       const fileExt = file.name.split('.').pop();
@@ -37,7 +41,8 @@ export const usePixelUpload = () => {
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
 
       if (storageError) throw storageError;

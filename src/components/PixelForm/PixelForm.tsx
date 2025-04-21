@@ -54,7 +54,8 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
+          contentType: file.type || 'image/png'
         });
 
       if (storageError) throw storageError;
