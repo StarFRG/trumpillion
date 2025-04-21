@@ -29,7 +29,7 @@ if (!process.env.FEE_PAYER_PRIVATE_KEY) {
 
 try {
   const secretKey = Uint8Array.from(JSON.parse(process.env.FEE_PAYER_PRIVATE_KEY));
-  const keypair = createKeypairFromSecretKey(secretKey);
+  const keypair = umi.eddsa.createKeypairFromSecretKey(secretKey);
   const signer = createSignerFromKeypair(umi, keypair);
   umi.use(signerIdentity(signer));
 } catch (error) {
