@@ -42,7 +42,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
   const validateBalance = async () => {
     if (!wallet) return false;
-    return WalletValidationService.validateBalance(wallet, 1_000_000_000); // 1 SOL in Lamports
+    return WalletValidationService.validateBalance(wallet, 1_000_000_000);
   };
 
   const checkPixelAvailability = async (x: number, y: number) => {
@@ -53,7 +53,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .select('owner')
         .eq('x', x)
         .eq('y', y)
-        .maybeSingle();
+        .single();
 
       if (error) {
         throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
@@ -61,7 +61,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       return !data?.owner;
     } catch (error) {
-      monitoring.logErrorWithContext(error, 'UploadModal:checkPixelAvailability', {
+      monitoring.logErrorWithContext(error, 'usePixelUpload:checkPixelAvailability', {
         x,
         y,
         wallet: getWalletAddress(wallet)
@@ -147,7 +147,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         URL.revokeObjectURL(previewUrl);
       }
       setPreviewUrl(null);
-      setError(getErrorMessage(error));
+      setError(error instanceof Error ? error.message : 'Invalid file');
       return false;
     }
   }, [previewUrl]);
@@ -177,25 +177,33 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
-      // Check if file exists and remove if necessary
-      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (publicUrlData?.publicUrl) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
-      }
+      const getMimeTypeFromExtension = (filename: string): string => {
+        const ext = filename.toLowerCase().split('.').pop();
+        switch (ext) {
+          case 'jpg':
+          case 'jpeg':
+            return 'image/jpeg';
+          case 'png':
+            return 'image/png';
+          case 'gif':
+            return 'image/gif';
+          default:
+            return '';
+        }
+      };
 
-      const contentType = file.type && file.type.startsWith('image/')
-        ? file.type
-        : 'image/png';
+      const inferredType = file.type || getMimeTypeFromExtension(file.name);
+      const fileWithType = new File([file], file.name, { type: inferredType });
 
-      console.log('Uploading file with contentType:', contentType);
+      console.log('Uploading file with contentType:', inferredType);
 
       const supabase = await getSupabase();
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, file, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
-          contentType
+          contentType: inferredType
         });
 
       if (storageError) throw storageError;
@@ -346,12 +354,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         handleCancel();
       }, 2000);
     } catch (error) {
-      monitoring.logErrorWithContext(error, 'UploadModal:handleMint', {
-        coordinates,
-        wallet: getWalletAddress(wallet)
+      console.error('Error:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to mint NFT'),
+        context: { 
+          action: 'mint_nft',
+          coordinates,
+          wallet: getWalletAddress(wallet)
+        }
       });
-      setError(getErrorMessage(error));
-      toast.error(getErrorMessage(error));
+      setError(error instanceof Error ? error.message : t('common.error'));
     } finally {
       setLoading(false);
       setProcessingPayment(false);

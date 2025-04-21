@@ -50,7 +50,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
             .select('owner')
             .eq('x', pixel.x)
             .eq('y', pixel.y)
-            .maybeSingle();
+            .single();
 
           if (existingPixel?.owner) {
             throw new Error(t('pixel.error.alreadyOwned'));
@@ -141,28 +141,40 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
       }
 
-      const supabase = await getSupabase();
       const fileExt = file.name.split('.').pop();
-      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
-
-      // Check if file exists and remove if necessary
-      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (publicUrlData?.publicUrl) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
+      if (!fileExt) {
+        throw new Error('INVALID_IMAGE');
       }
 
-      const contentType = file.type && file.type.startsWith('image/')
-        ? file.type
-        : 'image/png';
+      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
-      console.log('Uploading file with contentType:', contentType);
+      const getMimeTypeFromExtension = (filename: string): string => {
+        const ext = filename.toLowerCase().split('.').pop();
+        switch (ext) {
+          case 'jpg':
+          case 'jpeg':
+            return 'image/jpeg';
+          case 'png':
+            return 'image/png';
+          case 'gif':
+            return 'image/gif';
+          default:
+            return '';
+        }
+      };
 
+      const inferredType = file.type || getMimeTypeFromExtension(file.name);
+      const fileWithType = new File([file], file.name, { type: inferredType });
+
+      console.log('Uploading file with contentType:', inferredType);
+
+      const supabase = await getSupabase();
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, file, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
-          contentType
+          contentType: inferredType
         });
 
       if (storageError) throw storageError;

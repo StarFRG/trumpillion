@@ -3,7 +3,7 @@ import { useWalletConnection } from '../../hooks/useWalletConnection';
 import { getSupabase } from '../../lib/supabase';
 import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
-import { getWalletAddress, isWalletConnected } from '../../utils/walletUtils';
+import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
 import { Upload } from 'lucide-react';
 
 interface PixelFormProps {
@@ -52,28 +52,51 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       validateFile(file);
       setUploading(true);
 
-      const supabase = await getSupabase();
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
+
       const fileExt = file.name.split('.').pop();
+      if (!fileExt) {
+        throw new Error('Dateiendung konnte nicht ermittelt werden');
+      }
+
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
+      const getMimeTypeFromExtension = (filename: string): string => {
+        const ext = filename.toLowerCase().split('.').pop();
+        switch (ext) {
+          case 'jpg':
+          case 'jpeg':
+            return 'image/jpeg';
+          case 'png':
+            return 'image/png';
+          case 'gif':
+            return 'image/gif';
+          default:
+            return '';
+        }
+      };
+
+      const inferredType = file.type || getMimeTypeFromExtension(file.name);
+      const fileWithType = new File([file], file.name, { type: inferredType });
+
+      console.log('Uploading file with contentType:', inferredType);
+
+      const supabase = await getSupabase();
+      
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
-      const contentType = file.type && file.type.startsWith('image/')
-        ? file.type
-        : 'image/png';
-
-      console.log('Uploading file with contentType:', contentType);
-
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, file, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
-          contentType
+          contentType: inferredType
         });
 
       if (storageError) throw storageError;
@@ -177,6 +200,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         {uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+            <span className="ml-3 text-white">Uploading...</span>
           </div>
         )}
       </div>

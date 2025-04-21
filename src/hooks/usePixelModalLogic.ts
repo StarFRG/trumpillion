@@ -23,10 +23,6 @@ export const usePixelModalLogic = (onClose: () => void) => {
       setUploading(true);
       setError(null);
 
-      if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
-      }
-
       const supabase = await getSupabase();
       
       const fileExt = file.name.split('.').pop();
@@ -36,24 +32,38 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
+      const getMimeTypeFromExtension = (filename: string): string => {
+        const ext = filename.toLowerCase().split('.').pop();
+        switch (ext) {
+          case 'jpg':
+          case 'jpeg':
+            return 'image/jpeg';
+          case 'png':
+            return 'image/png';
+          case 'gif':
+            return 'image/gif';
+          default:
+            return '';
+        }
+      };
+
+      const inferredType = file.type || getMimeTypeFromExtension(file.name);
+      const fileWithType = new File([file], file.name, { type: inferredType });
+
+      console.log('Uploading file with contentType:', inferredType);
+
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
-      const contentType = file.type && file.type.startsWith('image/')
-        ? file.type
-        : 'image/png';
-
-      console.log('Uploading file with contentType:', contentType);
-
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, file, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
-          contentType
+          contentType: inferredType
         });
 
       if (storageError) throw storageError;
