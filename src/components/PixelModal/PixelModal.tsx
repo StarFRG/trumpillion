@@ -145,12 +145,24 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
+      const contentType = file.type && file.type.startsWith('image/')
+        ? file.type
+        : 'image/png';
+
+      console.log('Uploading file with contentType:', contentType);
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
           upsert: true,
-          contentType: file.type || 'image/png'
+          contentType
         });
 
       if (storageError) throw storageError;
@@ -227,6 +239,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setNftUrl(null);
     setSelectedCoordinates(null);
     setPreviewUrl(null);
+    setError(null);
     onClose();
   }, [uploadedImageUrl, previewUrl, onClose, wallet]);
 
@@ -286,6 +299,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
+      setNftUrl(nftUrl);
 
       const supabase = await getSupabase();
       
@@ -426,9 +440,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
                   <img 
                     src={previewUrl} 
                     alt="Preview" 
-                    className="w-full h-full object
-
--contain"
+                    className="w-full h-full object-contain"
                   />
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                     <p className="text-white text-sm">Click to choose another image</p>
@@ -446,9 +458,12 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
                 </div>
               )}
 
-              {loading && (
+              {(loading || processingPayment) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                   <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  <span className="ml-3 text-white">
+                    {processingPayment ? 'Processing payment...' : 'Uploading...'}
+                  </span>
                 </div>
               )}
             </div>

@@ -177,13 +177,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
+      const contentType = file.type && file.type.startsWith('image/')
+        ? file.type
+        : 'image/png';
+
+      console.log('Uploading file with contentType:', contentType);
+
       const supabase = await getSupabase();
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
           upsert: true,
-          contentType: file.type || 'image/png'
+          contentType
         });
 
       if (storageError) throw storageError;
@@ -251,6 +263,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setCoordinates(null);
     setPreviewUrl(null);
     setStep('initial');
+    setError(null);
     onClose();
   }, [uploadedImageUrl, previewUrl, onClose, wallet]);
 
@@ -464,9 +477,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
                 </div>
               )}
 
-              {loading && (
+              {(loading || processingPayment) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                   <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  <span className="ml-3 text-white">
+                    {processingPayment ? 'Processing payment...' : 'Uploading...'}
+                  </span>
                 </div>
               )}
             </div>

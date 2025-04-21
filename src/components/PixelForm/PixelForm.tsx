@@ -5,7 +5,6 @@ import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
 import { getWalletAddress, isWalletConnected } from '../../utils/walletUtils';
 import { Upload } from 'lucide-react';
-import { solanaService } from '../../services/solana';
 
 interface PixelFormProps {
   coordinates: { x: number; y: number };
@@ -17,12 +16,15 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [processingPayment, setProcessingPayment] = useState(false);
   const { wallet } = useWalletConnection();
 
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
+      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+      }
       
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
@@ -32,6 +34,10 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       setPreviewUrl(newPreviewUrl);
       return true;
     } catch (error) {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
       onError(error instanceof Error ? error.message : 'Invalid file');
       return false;
     }
@@ -50,81 +56,37 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       const fileExt = file.name.split('.').pop();
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
+      const contentType = file.type && file.type.startsWith('image/')
+        ? file.type
+        : 'image/png';
+
+      console.log('Uploading file with contentType:', contentType);
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
           upsert: true,
-          contentType: file.type || 'image/png'
+          contentType
         });
 
       if (storageError) throw storageError;
 
-      const { data, error: publicUrlError } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (publicUrlError || !data?.publicUrl) {
+      if (!data?.publicUrl) {
         throw new Error('Public URL konnte nicht generiert werden');
       }
 
-      const publicUrl = data.publicUrl;
-
-      // Process payment first
-      setProcessingPayment(true);
-      const txId = await solanaService.processPayment(wallet);
-      console.log('Payment successful:', txId);
-
-      // Call mint-nft function
-      const response = await fetch('/.netlify/functions/mint-nft', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          wallet: wallet.publicKey?.toString(),
-          name: `Trumpillion Pixel (${coordinates.x}, ${coordinates.y})`,
-          description: 'A piece of the Trumpillion mosaic',
-          imageUrl: publicUrl,
-          x: coordinates.x,
-          y: coordinates.y
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'MINT_FAILED');
-      }
-
-      const { mint } = await response.json();
-      const nftUrl = `https://solscan.io/token/${mint}`;
-
-      // Update database
-      const { error: dbError } = await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: publicUrl,
-          nft_url: nftUrl,
-          owner: getWalletAddress(wallet)
-        });
-
-      if (dbError) {
-        monitoring.logError({
-          error: dbError,
-          context: {
-            action: 'upsert_pixel',
-            coordinates,
-            wallet: getWalletAddress(wallet),
-            mint_address: mint
-          }
-        });
-        throw dbError;
-      }
-
-      onSuccess(publicUrl);
+      onSuccess(data.publicUrl);
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -138,7 +100,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       onError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
-      setProcessingPayment(false);
     }
   }, [coordinates, onSuccess, onError, wallet]);
 
@@ -213,12 +174,9 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
           </div>
         )}
 
-        {(uploading || processingPayment) && (
+        {uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-            <span className="ml-3 text-white">
-              {processingPayment ? 'Processing payment...' : 'Uploading...'}
-            </span>
           </div>
         )}
       </div>

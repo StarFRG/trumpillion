@@ -28,6 +28,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
       }
 
       const supabase = await getSupabase();
+      
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
         throw new Error('Dateiendung konnte nicht ermittelt werden');
@@ -41,12 +42,18 @@ export const usePixelModalLogic = (onClose: () => void) => {
         await supabase.storage.from('pixel-images').remove([fileName]);
       }
 
+      const contentType = file.type && file.type.startsWith('image/')
+        ? file.type
+        : 'image/png';
+
+      console.log('Uploading file with contentType:', contentType);
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, file, {
           cacheControl: '3600',
           upsert: true,
-          contentType: file.type || 'image/png'
+          contentType
         });
 
       if (storageError) throw storageError;
