@@ -15,7 +15,7 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 
 // Initialize Umi with RPC
 const umi = createUmi(process.env.SOLANA_RPC_URL)
-  .use(web3JsRpc())
+  .use(web3JsRpc({ rpcEndpoint: process.env.SOLANA_RPC_URL }))
   .use(mplTokenMetadata())
   .use(irysUploader());
 
