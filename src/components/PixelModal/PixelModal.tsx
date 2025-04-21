@@ -35,6 +35,21 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  const getMimeTypeFromExtension = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
   useEffect(() => {
     if (!isOpen || !wallet?.connected || !wallet.publicKey) return;
 
@@ -123,12 +138,11 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) {
-      setError('Wallet ist nicht verbunden');
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     if (!selectedCoordinates) {
-      setError('No coordinates selected');
+      throw new Error('No coordinates selected');
       return;
     }
 
@@ -138,7 +152,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setError(null);
 
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
 
       const fileExt = file.name.split('.').pop();
@@ -146,28 +160,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
-
-      const getMimeTypeFromExtension = (filename: string): string => {
-        const ext = filename.toLowerCase().split('.').pop();
-        switch (ext) {
-          case 'jpg':
-          case 'jpeg':
-            return 'image/jpeg';
-          case 'png':
-            return 'image/png';
-          case 'gif':
-            return 'image/gif';
-          default:
-            return '';
-        }
-      };
+      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileBuffer = await file.arrayBuffer();
-      const blob = new Blob([fileBuffer], { type: inferredType });
-
-      console.log('Uploading file with contentType:', inferredType);
+      const fileWithType = new File([file], file.name, { type: inferredType });
 
       const supabase = await getSupabase();
 
@@ -179,7 +175,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, blob, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType

@@ -30,7 +30,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         throw new Error('Dateiendung konnte nicht ermittelt werden');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
       const getMimeTypeFromExtension = (filename: string): string => {
         const ext = filename.toLowerCase().split('.').pop();
@@ -43,15 +43,12 @@ export const usePixelModalLogic = (onClose: () => void) => {
           case 'gif':
             return 'image/gif';
           default:
-            return '';
+            return 'application/octet-stream';
         }
       };
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileBuffer = await file.arrayBuffer();
-      const blob = new Blob([fileBuffer], { type: inferredType });
-
-      console.log('Uploading file with contentType:', inferredType);
+      const fileWithType = new File([file], file.name, { type: inferredType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
@@ -61,7 +58,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, blob, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType
@@ -74,13 +71,11 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Öffentliche URL konnte nicht generiert werden');
+        throw new Error('Public URL konnte nicht generiert werden');
       }
 
-      const publicUrl = publicData.publicUrl;
-      setImageUrl(publicUrl);
-
-      return publicUrl;
+      setImageUrl(publicData.publicUrl);
+      return publicData.publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({

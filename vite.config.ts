@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [
     react({
       fastRefresh: true,
+      jsxRuntime: 'automatic'
     }),
     VitePWA({
       registerType: 'prompt',
@@ -86,14 +87,31 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     hmr: {
-      timeout: 120000,
+      timeout: 60000,
       overlay: true,
-      clientPort: 5173
+      clientPort: 5173,
+      protocol: 'ws'
+    },
+    watch: {
+      usePolling: true,
+      interval: 1000
     }
   },
   preview: {
     host: true,
     port: 5173,
     strictPort: true
+  },
+  build: {
+    target: 'esnext',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          web3: ['@solana/web3.js', '@solana/wallet-adapter-react']
+        }
+      }
+    }
   }
 });

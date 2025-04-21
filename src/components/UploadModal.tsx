@@ -33,6 +33,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [step, setStep] = useState<ModalStep>('initial');
   const [processingPayment, setProcessingPayment] = useState(false);
 
+  const getMimeTypeFromExtension = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
   const validateWallet = async () => {
     if (!isWalletConnected(wallet)) {
       throw new Error('WALLET_NOT_CONNECTED');
@@ -159,6 +174,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
     if (!coordinates) {
       throw new Error('INVALID_COORDINATES');
+      return;
     }
 
     try {
@@ -167,7 +183,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setError(null);
 
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
 
       const fileExt = file.name.split('.').pop();
@@ -175,28 +191,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
-
-      const getMimeTypeFromExtension = (filename: string): string => {
-        const ext = filename.toLowerCase().split('.').pop();
-        switch (ext) {
-          case 'jpg':
-          case 'jpeg':
-            return 'image/jpeg';
-          case 'png':
-            return 'image/png';
-          case 'gif':
-            return 'image/gif';
-          default:
-            return '';
-        }
-      };
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileBuffer = await file.arrayBuffer();
-      const blob = new Blob([fileBuffer], { type: inferredType });
-
-      console.log('Uploading file with contentType:', inferredType);
+      const fileWithType = new File([file], file.name, { type: inferredType });
 
       const supabase = await getSupabase();
 
@@ -208,7 +206,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, blob, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType
@@ -267,7 +265,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         } catch (error) {
           monitoring.logErrorWithContext(error, 'UploadModal:handleCancel', {
             fileName,
-            wallet: getWalletAddress(wallet)
+            wallet: wallet?.publicKey?.toBase58() ?? 'undefined'
           });
         }
       }
@@ -355,7 +353,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         monitoring.logError({
           error: dbError,
           context: { 
-            action: 'mint_nft',
+            action: 'upsert_pixel',
             coordinates,
             wallet: getWalletAddress(wallet),
             mint_address: mint

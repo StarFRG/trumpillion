@@ -18,6 +18,21 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { wallet } = useWalletConnection();
 
+  const getMimeTypeFromExtension = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
@@ -62,28 +77,10 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         throw new Error('Dateiendung konnte nicht ermittelt werden');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
-
-      const getMimeTypeFromExtension = (filename: string): string => {
-        const ext = filename.toLowerCase().split('.').pop();
-        switch (ext) {
-          case 'jpg':
-          case 'jpeg':
-            return 'image/jpeg';
-          case 'png':
-            return 'image/png';
-          case 'gif':
-            return 'image/gif';
-          default:
-            return '';
-        }
-      };
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileBuffer = await file.arrayBuffer();
-      const blob = new Blob([fileBuffer], { type: inferredType });
-
-      console.log('Uploading file with contentType:', inferredType);
+      const fileWithType = new File([file], file.name, { type: inferredType });
 
       const supabase = await getSupabase();
 
@@ -95,7 +92,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, blob, {
+        .upload(fileName, fileWithType, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType
