@@ -103,7 +103,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       if (!file.type.startsWith('image/')) {
         throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
       }
-
+      
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -164,14 +164,22 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       };
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const fileBuffer = await file.arrayBuffer();
+      const blob = new Blob([fileBuffer], { type: inferredType });
 
       console.log('Uploading file with contentType:', inferredType);
 
       const supabase = await getSupabase();
+
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType
@@ -179,15 +187,15 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       if (storageError) throw storageError;
 
-      const { data: publicData } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (!publicData?.publicUrl) {
-        throw new Error('Failed to get public URL');
+      if (!data?.publicUrl) {
+        throw new Error('Public URL konnte nicht generiert werden');
       }
 
-      setUploadedImageUrl(publicData.publicUrl);
+      setUploadedImageUrl(data.publicUrl);
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -314,7 +322,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setNftUrl(nftUrl);
 
       const supabase = await getSupabase();
-      
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({

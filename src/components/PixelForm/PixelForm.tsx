@@ -44,11 +44,12 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   }, [previewUrl, onError]);
 
   const handleUpload = useCallback(async (file: File) => {
-    try {
-      if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet ist nicht verbunden');
-      }
+    if (!isWalletConnected(wallet)) {
+      setError('Wallet ist nicht verbunden');
+      return;
+    }
 
+    try {
       validateFile(file);
       setUploading(true);
 
@@ -79,12 +80,13 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       };
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const fileBuffer = await file.arrayBuffer();
+      const blob = new Blob([fileBuffer], { type: inferredType });
 
       console.log('Uploading file with contentType:', inferredType);
 
       const supabase = await getSupabase();
-      
+
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
@@ -93,7 +95,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType

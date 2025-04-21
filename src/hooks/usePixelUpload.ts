@@ -49,7 +49,8 @@ export const usePixelUpload = () => {
       };
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const fileBuffer = await file.arrayBuffer();
+      const blob = new Blob([fileBuffer], { type: inferredType });
 
       console.log('Uploading file with contentType:', inferredType);
 
@@ -61,7 +62,7 @@ export const usePixelUpload = () => {
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType

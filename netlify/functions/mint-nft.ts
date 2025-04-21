@@ -109,8 +109,14 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Validate image URL format
-    if (!/^https?:\/\/.*\.(jpg|jpeg|png|gif)$/i.test(imageUrl)) {
+    // Validate image URL exists and is an image
+    const headRes = await fetch(imageUrl, {
+      method: 'HEAD',
+      headers: { 'User-Agent': 'Trumpillion/1.0' }
+    });
+
+    const contentType = headRes.headers.get('Content-Type') || '';
+    if (!contentType.startsWith('image/')) {
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -152,15 +158,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       }
 
       const imageBuffer = await imageResponse.arrayBuffer();
-      const contentType = imageResponse.headers.get('Content-Type') || 'image/jpeg';
-
-      if (imageBuffer.byteLength > 10 * 1024 * 1024) {
-        return { 
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
-        };
-      }
 
       // Prepare metadata
       const metadata = {

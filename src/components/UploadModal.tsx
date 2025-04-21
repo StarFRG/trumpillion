@@ -134,7 +134,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (!file.type.startsWith('image/')) {
         throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
       }
-
+      
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
@@ -157,14 +157,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       throw new Error('WALLET_NOT_CONNECTED');
     }
 
+    if (!coordinates) {
+      throw new Error('INVALID_COORDINATES');
+    }
+
     try {
       validateFile(file);
       setLoading(true);
       setError(null);
-
-      if (!coordinates) {
-        throw new Error('INVALID_COORDINATES');
-      }
 
       if (!file.type.startsWith('image/')) {
         throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
@@ -193,14 +193,22 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       };
 
       const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const fileBuffer = await file.arrayBuffer();
+      const blob = new Blob([fileBuffer], { type: inferredType });
 
       console.log('Uploading file with contentType:', inferredType);
 
       const supabase = await getSupabase();
+
+      // Check if file exists and remove if necessary
+      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await supabase.storage.from('pixel-images').remove([fileName]);
+      }
+
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true,
           contentType: inferredType
@@ -208,22 +216,26 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       if (storageError) throw storageError;
 
-      const { data: publicData } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (!publicData?.publicUrl) {
-        throw new Error('UPLOAD_FAILED');
+      if (!data?.publicUrl) {
+        throw new Error('Public URL konnte nicht generiert werden');
       }
 
-      setUploadedImageUrl(publicData.publicUrl);
+      setUploadedImageUrl(data.publicUrl);
     } catch (error) {
-      monitoring.logErrorWithContext(error, 'UploadModal:handleUpload', {
-        coordinates,
-        wallet: getWalletAddress(wallet)
+      console.error('Upload failed:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Upload failed'),
+        context: { 
+          action: 'upload_image',
+          coordinates,
+          wallet: getWalletAddress(wallet)
+        }
       });
-      setError(getErrorMessage(error));
-      toast.error(getErrorMessage(error));
+      setError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setLoading(false);
     }
@@ -340,12 +352,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         });
 
       if (dbError) {
-        monitoring.logErrorWithContext(dbError, 'UploadModal:upsert', {
-          coordinates,
-          wallet: getWalletAddress(wallet),
-          mint_address: mint
+        monitoring.logError({
+          error: dbError,
+          context: { 
+            action: 'mint_nft',
+            coordinates,
+            wallet: getWalletAddress(wallet),
+            mint_address: mint
+          }
         });
-        throw new Error('UPLOAD_FAILED');
+        throw dbError;
       }
 
       setUploadSuccess(true);
@@ -363,7 +379,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : t('common.error'));
+      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
     } finally {
       setLoading(false);
       setProcessingPayment(false);
