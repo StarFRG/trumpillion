@@ -1,6 +1,7 @@
 import { Handler } from '@netlify/functions';
 import {
   createSignerFromKeypair,
+  createKeypairFromSecretKey,
   signerIdentity
 } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
