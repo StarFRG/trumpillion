@@ -1,11 +1,8 @@
 import { Handler } from '@netlify/functions';
-import {
-  createSignerFromKeypair,
-  signerIdentity
-} from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { web3JsRpc } from '@metaplex-foundation/umi-rpc-web3js';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
+import { createSignerFromKeypair, signerIdentity, publicKey } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { supabase } from './supabase-client';
@@ -90,7 +87,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     // Validate wallet address
     let walletPublicKey;
     try {
-      walletPublicKey = umi.publicKey(wallet);
+      walletPublicKey = publicKey(wallet);
     } catch (error) {
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Invalid wallet address'),
@@ -183,16 +180,15 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
 
       // Upload metadata
-      const uploadResult = await umi.uploader.uploadJson(metadata);
-      if (!uploadResult?.uri) {
+      const { uri } = await umi.uploader.uploadJson(metadata);
+      if (!uri) {
         throw new Error('UPLOAD_FAILED');
       }
-      const { uri } = uploadResult;
 
-      // Generate mint
+      // Generate mint keypair
       const mint = umi.eddsa.generateKeypair();
 
-      // Mint NFT
+      // Create NFT
       await createV1(umi, {
         mint,
         name,
