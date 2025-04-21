@@ -8,9 +8,10 @@
   node_bundler = "esbuild"
   external_node_modules = [
     "@metaplex-foundation/umi",
+    "@metaplex-foundation/umi-bundle-defaults",
     "@metaplex-foundation/umi-rpc-web3js",
-    "@metaplex-foundation/mpl-token-metadata",
-    "@metaplex-foundation/umi-uploader-irys"
+    "@metaplex-foundation/umi-uploader-irys",
+    "@metaplex-foundation/mpl-token-metadata"
   ]
 
 [[headers]]
