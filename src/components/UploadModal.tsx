@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletConnection } from '../hooks/useWalletConnection';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
 import { monitoring } from '../services/monitoring';
@@ -182,19 +182,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('INVALID_IMAGE');
       }
 
-      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
-
       const arrayBuffer = await file.arrayBuffer();
-      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'gif': 'image/gif'
-      }[fileExt2] || 'image/jpeg';
+      }[fileExt.toLowerCase()] || 'image/jpeg';
 
-      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
+      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
+      const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
       const supabase = await getSupabase();
 

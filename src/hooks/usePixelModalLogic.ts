@@ -46,18 +46,17 @@ export const usePixelModalLogic = (onClose: () => void) => {
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
-
       const arrayBuffer = await file.arrayBuffer();
-      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'gif': 'image/gif'
-      }[fileExt2] || 'image/jpeg';
+      }[fileExt.toLowerCase()] || 'image/jpeg';
 
-      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
+      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
+      const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);

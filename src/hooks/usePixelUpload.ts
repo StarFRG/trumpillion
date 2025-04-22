@@ -54,7 +54,9 @@ export const usePixelUpload = () => {
         'gif': 'image/gif'
       }[fileExt2] || 'image/jpeg';
 
-      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
+      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
+const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
+const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
