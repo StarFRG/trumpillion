@@ -144,78 +144,66 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   }, [previewUrl]);
 
   const handleUpload = useCallback(async (file: File) => {
-    if (!isWalletConnected(wallet)) {
-      throw new Error('WALLET_NOT_CONNECTED');
-    }
-
-    if (!selectedCoordinates) {
-      throw new Error('INVALID_COORDINATES');
-    }
+    if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
+    if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
 
     try {
-      validateFile(file);
       setLoading(true);
       setError(null);
-
+      
+      // 1. Validate file
+      validateFile(file);
       await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
-      if (!file.type.startsWith('image/')) {
-        throw new Error('INVALID_IMAGE');
-      }
-
-      const fileExt = file.name.split('.').pop()?.toLowerCase();
-      if (!fileExt) {
-        throw new Error('INVALID_IMAGE');
-      }
-
+      // 2. Check magic bytes
       const arrayBuffer = await file.arrayBuffer();
-
       const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      
+      // 3. Detect MIME type from bytes
+      let detectedMime = 'image/jpeg';
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
       const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
 
-      if (!isPNG && !isJPEG && !isGIF) {
-        throw new Error('INVALID_IMAGE_BYTES');
-      }
+      if (isPNG) detectedMime = 'image/png';
+      else if (isGIF) detectedMime = 'image/gif';
+      else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
 
-      const mimeType = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif'
-      }[fileExt.toLowerCase()] || 'image/jpeg';
+      // 4. Create filename with correct extension
+      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
-      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
-      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${cleanExt}`;
-      const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
+      // 5. Create blob with correct MIME type
+      const blob = new Blob([arrayBuffer], { type: detectedMime });
+      const correctedFile = new File([blob], fileName, { type: detectedMime });
 
+      // 6. Delete old file (instead of upsert)
       const supabase = await getSupabase();
+      await supabase.storage.from('pixel-images').remove([fileName]);
 
-      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (publicUrlData?.publicUrl) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
-      }
-
-      const { data: storageData, error: storageError } = await supabase.storage
+      // 7. Upload with secured MIME type
+      const { error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, correctedFile, {
           cacheControl: '3600',
-          upsert: true,
-          contentType: mimeType
+          contentType: detectedMime // Explicitly set
         });
 
       if (storageError) throw storageError;
 
-      const { data } = supabase.storage
-        .from('pixel-images')
-        .getPublicUrl(fileName);
-
-      if (!data?.publicUrl) {
-        throw new Error('UPLOAD_FAILED');
-      }
+      // 8. Get public URL
+      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
       setUploadedImageUrl(data.publicUrl);
+
+      // 9. Set global state (important!)
+      setSelectedPixel({
+        x: selectedCoordinates.x,
+        y: selectedCoordinates.y,
+        imageUrl: data.publicUrl
+      });
+
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -231,7 +219,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     } finally {
       setLoading(false);
     }
-  }, [selectedCoordinates, wallet, validatePixelAvailability]);
+  }, [selectedCoordinates, wallet, validatePixelAvailability, setSelectedPixel]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

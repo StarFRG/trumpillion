@@ -20,16 +20,122 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const { wallet } = useWalletConnection();
   const { setSelectedPixel } = usePixelStore();
 
+  const validatePixelAvailability = useCallback(async (x: number, y: number) => {
+    try {
+      const supabase = await getSupabase();
+      const { data: existingPixel, error } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', x)
+        .eq('y', y)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error('Failed to check pixel availability');
+      }
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
+      return true;
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
+        context: { action: 'validate_pixel', x, y }
+      });
+      throw error;
+    }
+  }, []);
+
+  const handleUpload = useCallback(async (file: File) => {
+    if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
+    if (!coordinates) throw new Error('INVALID_COORDINATES');
+
+    try {
+      setUploading(true);
+      setError(null);
+      
+      // 1. Validate file
+      validateFile(file);
+      await validatePixelAvailability(coordinates.x, coordinates.y);
+
+      // 2. Check magic bytes
+      const arrayBuffer = await file.arrayBuffer();
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      
+      // 3. Detect MIME type from bytes
+      let detectedMime = 'image/jpeg';
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (isPNG) detectedMime = 'image/png';
+      else if (isGIF) detectedMime = 'image/gif';
+      else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
+
+      // 4. Create filename with correct extension
+      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
+
+      // 5. Create blob with correct MIME type
+      const blob = new Blob([arrayBuffer], { type: detectedMime });
+      const correctedFile = new File([blob], fileName, { type: detectedMime });
+
+      // 6. Delete old file (instead of upsert)
+      const supabase = await getSupabase();
+      await supabase.storage.from('pixel-images').remove([fileName]);
+
+      // 7. Upload with secured MIME type
+      const { error: storageError } = await supabase.storage
+        .from('pixel-images')
+        .upload(fileName, correctedFile, {
+          cacheControl: '3600',
+          contentType: detectedMime // Explicitly set
+        });
+
+      if (storageError) throw storageError;
+
+      // 8. Get public URL
+      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+
+      onSuccess(data.publicUrl);
+
+      // 9. Set global state (important!)
+      setSelectedPixel({
+        x: coordinates.x,
+        y: coordinates.y,
+        imageUrl: data.publicUrl
+      });
+
+    } catch (error) {
+      console.error('Upload failed:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Upload failed'),
+        context: { 
+          action: 'upload_pixel',
+          coordinates,
+          wallet: getWalletAddress(wallet)
+        }
+      });
+      onError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
+    } finally {
+      setUploading(false);
+    }
+  }, [coordinates, onSuccess, onError, wallet, validatePixelAvailability, setSelectedPixel]);
+
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
       
-      if (file.size > 10 * 1024 * 1024) {
-        throw new Error('FILE_TOO_LARGE');
-      }
-      
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('FILE_TOO_LARGE');
       }
       
       if (previewUrl) {
@@ -48,108 +154,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       return false;
     }
   }, [previewUrl, onError]);
-
-  const handleUpload = useCallback(async (file: File) => {
-    if (!isWalletConnected(wallet)) {
-      throw new Error('WALLET_NOT_CONNECTED');
-    }
-
-    try {
-      validateFile(file);
-      setUploading(true);
-
-      if (!file.type.startsWith('image/')) {
-        throw new Error('INVALID_IMAGE');
-      }
-
-      const fileExt = file.name.split('.').pop()?.toLowerCase();
-      if (!fileExt) {
-        throw new Error('INVALID_IMAGE');
-      }
-
-      const allowedExts = ['jpg', 'jpeg', 'png', 'gif'];
-      if (!allowedExts.includes(fileExt)) {
-        throw new Error('UNSUPPORTED_IMAGE_TYPE');
-      }
-
-      const arrayBuffer = await file.arrayBuffer();
-
-      // Magic Bytes Validation
-      const header = new Uint8Array(arrayBuffer.slice(0, 4));
-      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
-      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
-      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
-
-      if (!isPNG && !isJPEG && !isGIF) {
-        throw new Error('INVALID_IMAGE_BYTES');
-      }
-
-      const mimeType = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif'
-      }[fileExt] || 'image/jpeg';
-
-      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
-      const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
-
-      const supabase = await getSupabase();
-
-      const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (publicUrlData?.publicUrl) {
-        await supabase.storage.from('pixel-images').remove([fileName]);
-      }
-
-      const { data: storageData, error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, correctedFile, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: mimeType
-        });
-
-      if (storageError) throw storageError;
-
-      const { data } = supabase.storage
-        .from('pixel-images')
-        .getPublicUrl(fileName);
-
-      if (!data?.publicUrl) {
-        throw new Error('UPLOAD_FAILED');
-      }
-
-      // Validate URL format
-      const isValid = /^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$/i.test(data.publicUrl);
-      if (!isValid) {
-        throw new Error('INVALID_IMAGE_URL_FORMAT');
-      }
-
-      onSuccess(data.publicUrl);
-
-      // Update selected pixel in store
-      setSelectedPixel({
-        x: coordinates.x,
-        y: coordinates.y,
-        imageUrl: data.publicUrl,
-      });
-
-    } catch (error) {
-      console.error('Upload failed:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
-          action: 'upload_pixel',
-          coordinates,
-          wallet: getWalletAddress(wallet)
-        }
-      });
-      onError(error instanceof Error ? error.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  }, [coordinates, onSuccess, onError, wallet, setSelectedPixel]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();

@@ -17,7 +17,7 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
 const umi = createUmi(process.env.SOLANA_RPC_URL)
   .use(web3JsRpc({ rpcEndpoint: process.env.SOLANA_RPC_URL }))
   .use(mplTokenMetadata())
-  .use(irysUploader());
+  .use(irysUploader({ timeout: 30000 }));
 
 // Set up fee payer from environment variable
 if (!process.env.FEE_PAYER_PRIVATE_KEY) {
@@ -109,53 +109,27 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Validate image URL exists and is an image
+    // Check pixel availability
+    const { data: existingPixel } = await supabase
+      .from('pixels')
+      .select('x, y', { head: false })
+      .eq('x', x)
+      .eq('y', y)
+      .maybeSingle();
+
+    if (existingPixel) {
+      return { 
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
+      };
+    }
+
+    // Validate and load image with timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const headRes = await fetch(imageUrl, {
-        method: 'HEAD',
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Trumpillion/1.0' }
-      });
-
-      const contentType = headRes.headers.get('Content-Type') || '';
-      if (!contentType.startsWith('image/')) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
-        };
-      }
-
-      // Check file size
-      const contentLength = Number(headRes.headers.get("Content-Length"));
-      if (contentLength > 10_000_000) { // 10MB Limit
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: "MAX_SIZE_EXCEEDED" })
-        };
-      }
-
-      // Check pixel availability
-      const { data: existingPixel } = await supabase
-        .from('pixels')
-        .select('x, y', { head: false })
-        .eq('x', x)
-        .eq('y', y)
-        .maybeSingle();
-
-      if (existingPixel) {
-        return { 
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
-        };
-      }
-
-      // Validate and load image with timeout
       const imageResponse = await fetch(imageUrl, {
         signal: controller.signal,
         headers: {
@@ -195,13 +169,13 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
           { trait_type: 'Y Coordinate', value: y.toString() }
         ],
         properties: {
-          files: [{ uri: imageUrl, type: contentType }],
+          files: [{ uri: imageUrl, type: imageResponse.headers.get('content-type') || 'image/jpeg' }],
           category: 'image',
           creators: [{ address: walletPublicKey.toString(), share: 100 }]
         }
       };
 
-      // Upload metadata
+      // Upload metadata with timeout
       const { uri } = await umi.uploader.uploadJson(metadata);
       if (!uri) {
         throw new Error('UPLOAD_FAILED');
@@ -219,7 +193,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
           uri,
           sellerFeeBasisPoints: 500,
           tokenStandard: TokenStandard.NonFungible,
-          creators: [{ address: walletPublicKey, share: 100, verified: true }]
+          creators: [{ address: walletPublicKey, share: 100, verified: false }]
         }).sendAndConfirm(umi);
       } catch (mintError) {
         monitoring.logError({
