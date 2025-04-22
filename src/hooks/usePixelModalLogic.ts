@@ -48,6 +48,11 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
     try {
       validateFile(file);
+
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('FILE_TOO_LARGE');
+      }
+
       setUploading(true);
       setError(null);
 

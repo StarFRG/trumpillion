@@ -88,7 +88,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         console.error('Error initializing pixel:', error);
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
-          context: {
+          context: { 
             action: 'initialize_pixel',
             wallet: wallet.publicKey?.toBase58() ?? 'undefined'
           }
@@ -119,6 +119,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('FILE_TOO_LARGE');
       }
       
       if (previewUrl) {

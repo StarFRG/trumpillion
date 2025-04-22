@@ -18,40 +18,16 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { wallet } = useWalletConnection();
 
-  const validatePixelAvailability = useCallback(async (x: number, y: number) => {
-    try {
-      const supabase = await getSupabase();
-      const { data: existingPixel, error } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', x)
-        .eq('y', y)
-        .maybeSingle();
-
-      if (error) {
-        throw new Error('Failed to check pixel availability');
-      }
-
-      if (existingPixel?.owner) {
-        throw new Error('PIXEL_ALREADY_TAKEN');
-      }
-
-      return true;
-    } catch (error) {
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
-        context: { action: 'validate_pixel', x, y }
-      });
-      throw error;
-    }
-  }, []);
-
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
       
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('FILE_TOO_LARGE');
       }
       
       if (previewUrl) {
@@ -79,9 +55,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     try {
       validateFile(file);
       setUploading(true);
-
-      // Check pixel availability first
-      await validatePixelAvailability(coordinates.x, coordinates.y);
 
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
@@ -122,7 +95,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
       const supabase = await getSupabase();
 
-      // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
@@ -152,7 +124,6 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         throw new Error('INVALID_IMAGE_URL_FORMAT');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
       onSuccess(data.publicUrl);
     } catch (error) {
       console.error('Upload failed:', error);
@@ -168,7 +139,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onSuccess, onError, wallet, validatePixelAvailability]);
+  }, [coordinates, onSuccess, onError, wallet]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();

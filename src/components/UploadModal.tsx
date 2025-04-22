@@ -53,7 +53,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .select('owner')
         .eq('x', x)
         .eq('y', y)
-        .maybeSingle();
+        .single();
 
       if (error) {
         throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
@@ -133,6 +133,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error('FILE_TOO_LARGE');
       }
       
       if (previewUrl) {
