@@ -18,27 +18,12 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { wallet } = useWalletConnection();
 
-  const getMimeTypeFromExtension = (filename: string): string => {
-    const ext = filename.toLowerCase().split('.').pop();
-    switch (ext) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      default:
-        return 'application/octet-stream';
-    }
-  };
-
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
       
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
       
       if (previewUrl) {
@@ -60,29 +45,47 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) {
-      setError('Wallet ist nicht verbunden');
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     try {
       validateFile(file);
       setUploading(true);
 
+      const supabase = await getSupabase();
+      const { data: existingPixel } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', coordinates.x)
+        .eq('y', coordinates.y)
+        .maybeSingle();
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
 
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
-        throw new Error('Dateiendung konnte nicht ermittelt werden');
+        throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
+      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
 
-      const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const arrayBuffer = await file.arrayBuffer();
+      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
+      }[fileExt2] || 'image/jpeg';
 
-      const supabase = await getSupabase();
+      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
@@ -92,10 +95,10 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, correctedFile, {
           cacheControl: '3600',
           upsert: true,
-          contentType: inferredType
+          contentType: mimeType
         });
 
       if (storageError) throw storageError;
@@ -107,6 +110,15 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       if (!data?.publicUrl) {
         throw new Error('Public URL konnte nicht generiert werden');
       }
+
+      await supabase
+        .from('pixels')
+        .upsert({
+          x: coordinates.x,
+          y: coordinates.y,
+          image_url: data.publicUrl,
+          owner: getWalletAddress(wallet)
+        });
 
       onSuccess(data.publicUrl);
     } catch (error) {

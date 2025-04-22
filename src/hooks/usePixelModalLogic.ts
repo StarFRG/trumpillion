@@ -16,39 +16,47 @@ export const usePixelModalLogic = (onClose: () => void) => {
   const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
     try {
       if (!isWalletConnected(wallet)) {
-        throw new Error('Wallet ist nicht verbunden');
+        throw new Error('WALLET_NOT_CONNECTED');
       }
 
       validateFile(file);
+
+      const supabase = await getSupabase();
+      const { data: existingPixel } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', coordinates.x)
+        .eq('y', coordinates.y)
+        .maybeSingle();
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
       setUploading(true);
       setError(null);
 
-      const supabase = await getSupabase();
-      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('INVALID_IMAGE');
+      }
+
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
-        throw new Error('Dateiendung konnte nicht ermittelt werden');
+        throw new Error('INVALID_IMAGE');
       }
 
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
-      const getMimeTypeFromExtension = (filename: string): string => {
-        const ext = filename.toLowerCase().split('.').pop();
-        switch (ext) {
-          case 'jpg':
-          case 'jpeg':
-            return 'image/jpeg';
-          case 'png':
-            return 'image/png';
-          case 'gif':
-            return 'image/gif';
-          default:
-            return 'application/octet-stream';
-        }
-      };
+      const arrayBuffer = await file.arrayBuffer();
+      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
+      }[fileExt2] || 'image/jpeg';
 
-      const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
@@ -58,10 +66,10 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, correctedFile, {
           cacheControl: '3600',
           upsert: true,
-          contentType: inferredType
+          contentType: mimeType
         });
 
       if (storageError) throw storageError;
@@ -71,7 +79,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .getPublicUrl(fileName);
 
       if (!publicData?.publicUrl) {
-        throw new Error('Public URL konnte nicht generiert werden');
+        throw new Error('UPLOAD_FAILED');
       }
 
       setImageUrl(publicData.publicUrl);
@@ -114,56 +122,69 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Call mint-nft function
-      const response = await fetch('/.netlify/functions/mint-nft', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          wallet: wallet.publicKey.toString(),
-          name: title,
-          description,
-          imageUrl,
-          x: coordinates.x,
-          y: coordinates.y
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'MINT_FAILED');
-      }
-
-      const { mint } = await response.json();
-      const nftUrl = `https://solscan.io/token/${mint}`;
-
-      const supabase = await getSupabase();
-      const { error: dbError } = await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: imageUrl,
-          nft_url: nftUrl,
-          owner: getWalletAddress(wallet)
+      // Call mint-nft function with proper error handling
+      try {
+        const response = await fetch('/.netlify/functions/mint-nft', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            wallet: wallet.publicKey.toString(),
+            name: title,
+            description,
+            imageUrl,
+            x: coordinates.x,
+            y: coordinates.y
+          })
         });
 
-      if (dbError) {
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'MINT_FAILED');
+        }
+
+        const { mint } = await response.json();
+        const nftUrl = `https://solscan.io/token/${mint}`;
+
+        const supabase = await getSupabase();
+        const { error: dbError } = await supabase
+          .from('pixels')
+          .upsert({
+            x: coordinates.x,
+            y: coordinates.y,
+            image_url: imageUrl,
+            nft_url: nftUrl,
+            owner: getWalletAddress(wallet)
+          });
+
+        if (dbError) {
+          monitoring.logError({
+            error: dbError,
+            context: {
+              action: 'upsert_pixel',
+              coordinates,
+              wallet: getWalletAddress(wallet),
+              mint_address: mint
+            }
+          });
+          throw dbError;
+        }
+
+        return nftUrl;
+      } catch (mintError) {
         monitoring.logError({
-          error: dbError,
+          error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
           context: {
-            action: 'upsert_pixel',
+            action: 'mint_nft',
+            wallet: wallet.publicKey.toString(),
             coordinates,
-            wallet: getWalletAddress(wallet),
-            mint_address: mint
+            imageUrl
           }
         });
-        throw dbError;
+        throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
       }
-
-      return nftUrl;
     } catch (error) {
       console.error('Submission failed:', error);
       monitoring.logError({

@@ -110,41 +110,52 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     }
 
     // Validate image URL exists and is an image
-    const headRes = await fetch(imageUrl, {
-      method: 'HEAD',
-      headers: { 'User-Agent': 'Trumpillion/1.0' }
-    });
-
-    const contentType = headRes.headers.get('Content-Type') || '';
-    if (!contentType.startsWith('image/')) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
-      };
-    }
-
-    // Check pixel availability
-    const { data: existingPixel } = await supabase
-      .from('pixels')
-      .select('x, y', { head: false })
-      .eq('x', x)
-      .eq('y', y)
-      .maybeSingle();
-
-    if (existingPixel) {
-      return { 
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
-      };
-    }
-
-    // Validate and load image with timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
 
     try {
+      const headRes = await fetch(imageUrl, {
+        method: 'HEAD',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Trumpillion/1.0' }
+      });
+
+      const contentType = headRes.headers.get('Content-Type') || '';
+      if (!contentType.startsWith('image/')) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE') })
+        };
+      }
+
+      // Check file size
+      const contentLength = Number(headRes.headers.get("Content-Length"));
+      if (contentLength > 10_000_000) { // 10MB Limit
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: "MAX_SIZE_EXCEEDED" })
+        };
+      }
+
+      // Check pixel availability
+      const { data: existingPixel } = await supabase
+        .from('pixels')
+        .select('x, y', { head: false })
+        .eq('x', x)
+        .eq('y', y)
+        .maybeSingle();
+
+      if (existingPixel) {
+        return { 
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
+        };
+      }
+
+      // Validate and load image with timeout
       const imageResponse = await fetch(imageUrl, {
         signal: controller.signal,
         headers: {
@@ -158,6 +169,20 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       }
 
       const imageBuffer = await imageResponse.arrayBuffer();
+
+      // Magic byte validation
+      const header = new Uint8Array(imageBuffer.slice(0, 4));
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (!isPNG && !isJPEG && !isGIF) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE_BYTES') })
+        };
+      }
 
       // Prepare metadata
       const metadata = {
@@ -185,16 +210,28 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       // Generate mint keypair
       const mint = umi.eddsa.generateKeypair();
 
-      // Create NFT
-      await createV1(umi, {
-        mint,
-        name,
-        symbol: 'TRUMPILLION',
-        uri,
-        sellerFeeBasisPoints: 500,
-        tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletPublicKey, share: 100, verified: true }]
-      }).sendAndConfirm(umi);
+      // Create NFT with proper error handling
+      try {
+        await createV1(umi, {
+          mint,
+          name,
+          symbol: 'TRUMPILLION',
+          uri,
+          sellerFeeBasisPoints: 500,
+          tokenStandard: TokenStandard.NonFungible,
+          creators: [{ address: walletPublicKey, share: 100, verified: true }]
+        }).sendAndConfirm(umi);
+      } catch (mintError) {
+        monitoring.logError({
+          error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
+          context: { 
+            action: 'mint_nft',
+            wallet: walletPublicKey.toString(),
+            uri
+          }
+        });
+        throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
+      }
 
       return { 
         statusCode: 200, 

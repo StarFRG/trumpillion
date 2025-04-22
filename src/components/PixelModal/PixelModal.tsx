@@ -35,20 +35,33 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const getMimeTypeFromExtension = (filename: string): string => {
-    const ext = filename.toLowerCase().split('.').pop();
-    switch (ext) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      default:
-        return 'application/octet-stream';
+  const validatePixelAvailability = useCallback(async (x: number, y: number) => {
+    try {
+      const supabase = await getSupabase();
+      const { data: existingPixel, error } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', x)
+        .eq('y', y)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error('Failed to check pixel availability');
+      }
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
+      return true;
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
+        context: { action: 'validate_pixel', x, y }
+      });
+      throw error;
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !wallet?.connected || !wallet.publicKey) return;
@@ -59,28 +72,16 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     const initializePixel = async () => {
       try {
         if (pixel) {
-          const supabase = await getSupabase();
-          const { data: existingPixel } = await supabase
-            .from('pixels')
-            .select('owner')
-            .eq('x', pixel.x)
-            .eq('y', pixel.y)
-            .single();
-
-          if (existingPixel?.owner) {
-            throw new Error(t('pixel.error.alreadyOwned'));
-          }
-
+          await validatePixelAvailability(pixel.x, pixel.y);
           setSelectedCoordinates(pixel);
         } else if (fromButton) {
           const availablePixel = await findAvailablePixel();
           if (availablePixel) {
+            await validatePixelAvailability(availablePixel.x, availablePixel.y);
             setSelectedCoordinates(availablePixel);
             setSelectedPixel(availablePixel);
           } else {
-            setError('Leider sind aktuell keine freien Pixel verfügbar.');
-            onClose();
-            return;
+            throw new Error('NO_FREE_PIXELS');
           }
         }
       } catch (error) {
@@ -93,13 +94,14 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           }
         });
         setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
+        onClose();
       } finally {
         setLoading(false);
       }
     };
 
     initializePixel();
-  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t, onClose]);
+  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t, onClose, validatePixelAvailability]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -116,7 +118,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       validateFile(file);
       
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
       
       if (previewUrl) {
@@ -142,14 +144,16 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     }
 
     if (!selectedCoordinates) {
-      throw new Error('No coordinates selected');
-      return;
+      throw new Error('INVALID_COORDINATES');
     }
 
     try {
       validateFile(file);
       setLoading(true);
       setError(null);
+
+      // Validate pixel availability again before upload
+      await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
@@ -162,8 +166,16 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`.replace(/^\/+/, '');
 
-      const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const arrayBuffer = await file.arrayBuffer();
+      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
+      }[fileExt2] || 'image/jpeg';
+
+      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
 
       const supabase = await getSupabase();
 
@@ -175,10 +187,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, correctedFile, {
           cacheControl: '3600',
           upsert: true,
-          contentType: inferredType
+          contentType: mimeType
         });
 
       if (storageError) throw storageError;
@@ -188,10 +200,24 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         .getPublicUrl(fileName);
 
       if (!data?.publicUrl) {
-        throw new Error('Public URL konnte nicht generiert werden');
+        throw new Error('UPLOAD_FAILED');
       }
 
       setUploadedImageUrl(data.publicUrl);
+
+      // Update pixel record in database
+      const { error: dbError } = await supabase
+        .from('pixels')
+        .upsert({
+          x: selectedCoordinates.x,
+          y: selectedCoordinates.y,
+          image_url: data.publicUrl,
+          owner: getWalletAddress(wallet)
+        });
+
+      if (dbError) throw dbError;
+
+      setUploadSuccess(true);
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -206,7 +232,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     } finally {
       setLoading(false);
     }
-  }, [wallet, selectedCoordinates]);
+  }, [selectedCoordinates, wallet, validatePixelAvailability]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -261,23 +287,19 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
   const handleMint = useCallback(async () => {
     if (!isWalletConnected(wallet)) {
-      setError(t('wallet.error.notConnected'));
-      return;
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
-    if (!wallet?.publicKey) {
-      setError(t('wallet.error.noAddress'));
-      return;
+    if (!wallet.publicKey) {
+      throw new Error('WALLET_NOT_CONNECTED');
     }
 
     if (!uploadedImageUrl || !selectedCoordinates) {
-      setError(t('pixel.upload.error.noFile'));
-      return;
+      throw new Error('INVALID_IMAGE');
     }
 
     if (!title || !description) {
-      setError(t('pixel.error.noDetails'));
-      return;
+      throw new Error('INVALID_INPUT');
     }
 
     if (loading || processingPayment) return;
@@ -287,6 +309,9 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setError(null);
 
     try {
+      // Validate pixel availability one last time before minting
+      await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
+
       // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
@@ -315,7 +340,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
-      setNftUrl(nftUrl);
 
       const supabase = await getSupabase();
       const { error: dbError } = await supabase
@@ -363,7 +387,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setLoading(false);
       setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, loading, processingPayment]);
+  }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, loading, processingPayment, validatePixelAvailability]);
 
   if (!isOpen) return null;
 

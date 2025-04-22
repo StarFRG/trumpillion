@@ -33,21 +33,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [step, setStep] = useState<ModalStep>('initial');
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  const getMimeTypeFromExtension = (filename: string): string => {
-    const ext = filename.toLowerCase().split('.').pop();
-    switch (ext) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      default:
-        return 'application/octet-stream';
-    }
-  };
-
   const validateWallet = async () => {
     if (!isWalletConnected(wallet)) {
       throw new Error('WALLET_NOT_CONNECTED');
@@ -68,7 +53,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .select('owner')
         .eq('x', x)
         .eq('y', y)
-        .single();
+        .maybeSingle();
 
       if (error) {
         throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
@@ -147,7 +132,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       validateFile(file);
       
       if (!file.type.startsWith('image/')) {
-        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
+        throw new Error('INVALID_IMAGE');
       }
       
       if (previewUrl) {
@@ -182,6 +167,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       setLoading(true);
       setError(null);
 
+      // Check pixel availability first
+      const pixelFree = await checkPixelAvailability(coordinates.x, coordinates.y);
+      if (!pixelFree) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
       }
@@ -191,10 +182,19 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
+      const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
 
-      const inferredType = file.type || getMimeTypeFromExtension(file.name);
-      const fileWithType = new File([file], file.name, { type: inferredType });
+      const arrayBuffer = await file.arrayBuffer();
+      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const mimeType = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
+      }[fileExt2] || 'image/jpeg';
+
+      const correctedFile = new File([arrayBuffer], file.name, { type: mimeType });
 
       const supabase = await getSupabase();
 
@@ -206,10 +206,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const { data: storageData, error: storageError } = await supabase.storage
         .from('pixel-images')
-        .upload(fileName, fileWithType, {
+        .upload(fileName, correctedFile, {
           cacheControl: '3600',
           upsert: true,
-          contentType: inferredType
+          contentType: mimeType
         });
 
       if (storageError) throw storageError;
@@ -223,6 +223,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       }
 
       setUploadedImageUrl(data.publicUrl);
+
+      // Update pixel record after successful upload
+      await supabase
+        .from('pixels')
+        .upsert({
+          x: coordinates.x,
+          y: coordinates.y,
+          image_url: data.publicUrl,
+          owner: getWalletAddress(wallet)
+        });
+
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -237,7 +248,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     } finally {
       setLoading(false);
     }
-  }, [wallet, coordinates]);
+  }, [coordinates, wallet]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -263,9 +274,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           const supabase = await getSupabase();
           await supabase.storage.from('pixel-images').remove([fileName]);
         } catch (error) {
-          monitoring.logErrorWithContext(error, 'UploadModal:handleCancel', {
-            fileName,
-            wallet: wallet?.publicKey?.toBase58() ?? 'undefined'
+          monitoring.logError({
+            error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
+            context: { 
+              action: 'cancel_upload', 
+              fileName,
+              wallet: wallet?.publicKey?.toBase58() ?? 'undefined'
+            }
           });
         }
       }
@@ -278,9 +293,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setUploadedImageUrl(null);
     setTitle('');
     setDescription('');
-    setCoordinates(null);
+    setShowShareDialog(false);
+    setNftUrl(null);
+    setSelectedCoordinates(null);
     setPreviewUrl(null);
-    setStep('initial');
     setError(null);
     onClose();
   }, [uploadedImageUrl, previewUrl, onClose, wallet]);
@@ -295,7 +311,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     }
 
     if (!uploadedImageUrl || !coordinates) {
-      throw new Error('INVALID_INPUT');
+      throw new Error('INVALID_IMAGE');
     }
 
     if (!title || !description) {
@@ -352,7 +368,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (dbError) {
         monitoring.logError({
           error: dbError,
-          context: { 
+          context: {
             action: 'upsert_pixel',
             coordinates,
             wallet: getWalletAddress(wallet),
@@ -377,12 +393,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
+      setError(error instanceof Error ? error.message : t('common.error'));
     } finally {
       setLoading(false);
       setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, loading, processingPayment]);
+  }, [uploadedImageUrl, coordinates, wallet, title, description, t, loading, processingPayment]);
 
   useEffect(() => {
     if (isOpen && !coordinates) {
