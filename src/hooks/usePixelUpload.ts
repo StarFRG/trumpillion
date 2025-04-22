@@ -10,6 +10,34 @@ export const usePixelUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const validatePixelAvailability = useCallback(async (x: number, y: number) => {
+    try {
+      const supabase = await getSupabase();
+      const { data: existingPixel, error } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', x)
+        .eq('y', y)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error('Failed to check pixel availability');
+      }
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
+      return true;
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
+        context: { action: 'validate_pixel', x, y }
+      });
+      throw error;
+    }
+  }, []);
+
   const uploadPixel = useCallback(async (file: File, coordinates: { x: number; y: number }): Promise<string> => {
     try {
       if (!isWalletConnected(wallet)) {
@@ -20,26 +48,21 @@ export const usePixelUpload = () => {
       setUploading(true);
       setError(null);
 
+      // Check pixel availability first
+      await validatePixelAvailability(coordinates.x, coordinates.y);
+
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
       }
 
-      // Check pixel availability first
-      const supabase = await getSupabase();
-      const { data: existingPixel } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .maybeSingle();
-
-      if (existingPixel?.owner) {
-        throw new Error('PIXEL_ALREADY_TAKEN');
-      }
-
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      const allowedExts = ['jpg', 'jpeg', 'png', 'gif'];
+      if (!allowedExts.includes(fileExt)) {
+        throw new Error('UNSUPPORTED_IMAGE_TYPE');
       }
 
       const arrayBuffer = await file.arrayBuffer();
@@ -59,13 +82,14 @@ export const usePixelUpload = () => {
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'gif': 'image/gif'
-      }[fileExt.toLowerCase()] || 'image/jpeg';
+      }[fileExt] || 'image/jpeg';
 
       const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
       const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
-      // Check if file exists and remove if necessary
+      const supabase = await getSupabase();
+
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
@@ -81,17 +105,22 @@ export const usePixelUpload = () => {
 
       if (storageError) throw storageError;
 
-      const { data: publicData } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (!publicData?.publicUrl) {
+      if (!data?.publicUrl) {
         throw new Error('UPLOAD_FAILED');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      // Validate URL format
+      const isValid = /^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$/i.test(data.publicUrl);
+      if (!isValid) {
+        throw new Error('INVALID_IMAGE_URL_FORMAT');
+      }
 
-      return publicData.publicUrl;
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      return data.publicUrl;
     } catch (error) {
       monitoring.logErrorWithContext(error, 'usePixelUpload:uploadPixel', {
         coordinates,
@@ -102,43 +131,13 @@ export const usePixelUpload = () => {
     } finally {
       setUploading(false);
     }
-  }, [wallet]);
-
-  const checkPixelAvailability = async (x: number, y: number): Promise<boolean> => {
-    try {
-      const supabase = await getSupabase();
-      const { data, error } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', x)
-        .eq('y', y)
-        .maybeSingle();
-
-      if (error) {
-        monitoring.logErrorWithContext(error, 'usePixelUpload:checkPixelAvailability', {
-          x,
-          y,
-          wallet: getWalletAddress(wallet)
-        });
-        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
-      }
-
-      return !data?.owner;
-    } catch (error) {
-      monitoring.logErrorWithContext(error, 'usePixelUpload:checkPixelAvailability', {
-        x,
-        y,
-        wallet: getWalletAddress(wallet)
-      });
-      return false;
-    }
-  };
+  }, [wallet, validatePixelAvailability]);
 
   return {
     uploading,
     error,
     uploadPixel,
-    checkPixelAvailability
+    validatePixelAvailability
   };
 };
 

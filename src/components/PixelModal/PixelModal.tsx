@@ -88,7 +88,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         console.error('Error initializing pixel:', error);
         monitoring.logError({
           error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
-          context: { 
+          context: {
             action: 'initialize_pixel',
             wallet: wallet.publicKey?.toBase58() ?? 'undefined'
           }
@@ -159,7 +159,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
       }
@@ -189,7 +189,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const supabase = await getSupabase();
 
-      // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);

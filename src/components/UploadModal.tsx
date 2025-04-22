@@ -19,7 +19,7 @@ interface UploadModalProps {
 type ModalStep = 'initial' | 'confirmed';
 
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
-  const wallet = useWallet();
+  const wallet = useWalletConnection();
   const { selectedPixel, findAvailablePixel } = usePixelStore();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,9 +170,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      const allowedExts = ['jpg', 'jpeg', 'png', 'gif'];
+      if (!allowedExts.includes(fileExt)) {
+        throw new Error('UNSUPPORTED_IMAGE_TYPE');
       }
 
       const arrayBuffer = await file.arrayBuffer();
@@ -182,17 +187,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
       const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
-
       if (!isPNG && !isJPEG && !isGIF) {
         throw new Error('INVALID_IMAGE_BYTES');
       }
 
       const mimeType = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif'
-      }[fileExt.toLowerCase()] || 'image/jpeg';
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif'
+      }[fileExt] || 'image/jpeg';
 
       const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
@@ -200,7 +204,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
       const supabase = await getSupabase();
 
-      // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
@@ -224,7 +227,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         throw new Error('UPLOAD_FAILED');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      // Validate URL format
+      const isValid = /^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$/i.test(data.publicUrl);
+      if (!isValid) {
+        throw new Error('INVALID_IMAGE_URL_FORMAT');
+      }
 
       setUploadedImageUrl(data.publicUrl);
     } catch (error) {

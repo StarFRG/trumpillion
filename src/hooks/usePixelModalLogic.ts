@@ -13,37 +13,59 @@ export const usePixelModalLogic = (onClose: () => void) => {
   const [processingPayment, setProcessingPayment] = useState(false);
   const wallet = useWallet();
 
-  const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
+  const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
-      if (!isWalletConnected(wallet)) {
-        throw new Error('WALLET_NOT_CONNECTED');
-      }
-
-      validateFile(file);
-
-      // Check pixel availability first
       const supabase = await getSupabase();
-      const { data: existingPixel } = await supabase
+      const { data: existingPixel, error } = await supabase
         .from('pixels')
         .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
+        .eq('x', x)
+        .eq('y', y)
         .maybeSingle();
+
+      if (error) {
+        throw new Error('Failed to check pixel availability');
+      }
 
       if (existingPixel?.owner) {
         throw new Error('PIXEL_ALREADY_TAKEN');
       }
 
+      return true;
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
+        context: { action: 'validate_pixel', x, y }
+      });
+      throw error;
+    }
+  }, []);
+
+  const handleUpload = useCallback(async (file: File, coordinates: { x: number; y: number }) => {
+    if (!isWalletConnected(wallet)) {
+      throw new Error('WALLET_NOT_CONNECTED');
+    }
+
+    try {
+      validateFile(file);
       setUploading(true);
       setError(null);
+
+      // Check pixel availability first
+      await validatePixelAvailability(coordinates.x, coordinates.y);
 
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
+      }
+
+      const allowedExts = ['jpg', 'jpeg', 'png', 'gif'];
+      if (!allowedExts.includes(fileExt)) {
+        throw new Error('UNSUPPORTED_IMAGE_TYPE');
       }
 
       const arrayBuffer = await file.arrayBuffer();
@@ -63,13 +85,14 @@ export const usePixelModalLogic = (onClose: () => void) => {
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'gif': 'image/gif'
-      }[fileExt.toLowerCase()] || 'image/jpeg';
+      }[fileExt] || 'image/jpeg';
 
       const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
       const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
-      // Check if file exists and remove if necessary
+      const supabase = await getSupabase();
+
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (publicUrlData?.publicUrl) {
         await supabase.storage.from('pixel-images').remove([fileName]);
@@ -85,23 +108,28 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       if (storageError) throw storageError;
 
-      const { data: publicData } = supabase.storage
+      const { data } = supabase.storage
         .from('pixel-images')
         .getPublicUrl(fileName);
 
-      if (!publicData?.publicUrl) {
+      if (!data?.publicUrl) {
         throw new Error('UPLOAD_FAILED');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      // Validate URL format
+      const isValid = /^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$/i.test(data.publicUrl);
+      if (!isValid) {
+        throw new Error('INVALID_IMAGE_URL_FORMAT');
+      }
 
-      setImageUrl(publicData.publicUrl);
-      return publicData.publicUrl;
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      setImageUrl(data.publicUrl);
+      return data.publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: {
+        context: { 
           action: 'upload_pixel',
           coordinates,
           wallet: getWalletAddress(wallet)
@@ -112,7 +140,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
     } finally {
       setUploading(false);
     }
-  }, [wallet]);
+  }, [wallet, validatePixelAvailability]);
 
   const handleSubmit = useCallback(async (title: string, description: string, coordinates: { x: number; y: number }) => {
     if (!isWalletConnected(wallet)) {
@@ -132,17 +160,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
     try {
       // Check pixel availability one last time before proceeding
-      const supabase = await getSupabase();
-      const { data: existingPixel } = await supabase
-        .from('pixels')
-        .select('owner')
-        .eq('x', coordinates.x)
-        .eq('y', coordinates.y)
-        .maybeSingle();
-
-      if (existingPixel?.owner) {
-        throw new Error('PIXEL_ALREADY_TAKEN');
-      }
+      await validatePixelAvailability(coordinates.x, coordinates.y);
 
       // Process payment first
       const txId = await solanaService.processPayment(wallet);
@@ -174,6 +192,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const nftUrl = `https://solscan.io/token/${mint}`;
 
       // Now we can finally store the pixel in the database
+      const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -199,21 +218,21 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       return nftUrl;
     } catch (error) {
-      console.error('Submission failed:', error);
+      console.error('Error:', error);
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Submission failed'),
-        context: {
-          action: 'submit_pixel',
+        error: error instanceof Error ? error : new Error('Failed to mint NFT'),
+        context: { 
+          action: 'mint_nft',
           coordinates,
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'Submission failed');
+      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
       throw error;
     } finally {
       setProcessingPayment(false);
     }
-  }, [wallet, imageUrl]);
+  }, [wallet, imageUrl, validatePixelAvailability]);
 
   const cleanup = useCallback(() => {
     setError(null);
