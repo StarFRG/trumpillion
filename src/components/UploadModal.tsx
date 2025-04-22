@@ -159,19 +159,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
 
     if (!coordinates) {
       throw new Error('INVALID_COORDINATES');
-      return;
     }
 
     try {
       validateFile(file);
       setLoading(true);
       setError(null);
-
-      // Check pixel availability first
-      const pixelFree = await checkPixelAvailability(coordinates.x, coordinates.y);
-      if (!pixelFree) {
-        throw new Error('PIXEL_ALREADY_TAKEN');
-      }
 
       if (!file.type.startsWith('image/')) {
         throw new Error('INVALID_IMAGE');
@@ -183,6 +176,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       }
 
       const arrayBuffer = await file.arrayBuffer();
+
+      // Magic Bytes Validation
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (!isPNG && !isJPEG && !isGIF) {
+        throw new Error('INVALID_IMAGE_BYTES');
+      }
+
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
@@ -238,7 +242,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     } finally {
       setLoading(false);
     }
-  }, [coordinates, wallet]);
+  }, [wallet, coordinates]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -416,10 +420,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
               }
               setCoordinates(availablePixel);
             } else {
-              setError('Leider sind aktuell keine freien Pixel verfügbar.');
-              toast.error('Keine freien Pixel verfügbar.');
-              onClose();
-              return;
+              throw new Error('NO_FREE_PIXELS');
             }
           }
         } catch (error) {
@@ -429,6 +430,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           });
           setError(getErrorMessage(error));
           toast.error(getErrorMessage(error));
+          onClose();
         }
       };
 

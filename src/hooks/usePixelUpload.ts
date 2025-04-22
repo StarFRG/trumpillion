@@ -17,6 +17,12 @@ export const usePixelUpload = () => {
       }
 
       validateFile(file);
+      setUploading(true);
+      setError(null);
+
+      if (!file.type.startsWith('image/')) {
+        throw new Error('INVALID_IMAGE');
+      }
 
       // Check pixel availability first
       const supabase = await getSupabase();
@@ -31,32 +37,33 @@ export const usePixelUpload = () => {
         throw new Error('PIXEL_ALREADY_TAKEN');
       }
 
-      setUploading(true);
-      setError(null);
-
-      if (!file.type.startsWith('image/')) {
-        throw new Error('INVALID_IMAGE');
-      }
-
       const fileExt = file.name.split('.').pop();
       if (!fileExt) {
         throw new Error('INVALID_IMAGE');
       }
 
-      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`.replace(/^\/+/, '');
-
       const arrayBuffer = await file.arrayBuffer();
-      const fileExt2 = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+
+      // Magic Bytes Validation
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (!isPNG && !isJPEG && !isGIF) {
+        throw new Error('INVALID_IMAGE_BYTES');
+      }
+
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'gif': 'image/gif'
-      }[fileExt2] || 'image/jpeg';
+      }[fileExt.toLowerCase()] || 'image/jpeg';
 
       const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
-const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
-const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
+      const fileName = `pixel_${coordinates.x}_${coordinates.y}.${cleanExt}`;
+      const correctedFile = new File([arrayBuffer], fileName, { type: mimeType });
 
       // Check if file exists and remove if necessary
       const { data: publicUrlData } = supabase.storage.from('pixel-images').getPublicUrl(fileName);

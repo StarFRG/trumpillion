@@ -47,6 +47,17 @@ export const usePixelModalLogic = (onClose: () => void) => {
       }
 
       const arrayBuffer = await file.arrayBuffer();
+
+      // Magic Bytes Validation
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (!isPNG && !isJPEG && !isGIF) {
+        throw new Error('INVALID_IMAGE_BYTES');
+      }
+
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
@@ -120,74 +131,73 @@ export const usePixelModalLogic = (onClose: () => void) => {
     setError(null);
 
     try {
+      // Check pixel availability one last time before proceeding
+      const supabase = await getSupabase();
+      const { data: existingPixel } = await supabase
+        .from('pixels')
+        .select('owner')
+        .eq('x', coordinates.x)
+        .eq('y', coordinates.y)
+        .maybeSingle();
+
+      if (existingPixel?.owner) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
       // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Call mint-nft function with proper error handling
-      try {
-        const response = await fetch('/.netlify/functions/mint-nft', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            wallet: wallet.publicKey.toString(),
-            name: title,
-            description,
-            imageUrl,
-            x: coordinates.x,
-            y: coordinates.y
-          })
+      // Call mint-nft function
+      const response = await fetch('/.netlify/functions/mint-nft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          wallet: wallet.publicKey.toString(),
+          name: title,
+          description,
+          imageUrl,
+          x: coordinates.x,
+          y: coordinates.y
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'MINT_FAILED');
+      }
+
+      const { mint } = await response.json();
+      const nftUrl = `https://solscan.io/token/${mint}`;
+
+      // Now we can finally store the pixel in the database
+      const { error: dbError } = await supabase
+        .from('pixels')
+        .upsert({
+          x: coordinates.x,
+          y: coordinates.y,
+          image_url: imageUrl,
+          nft_url: nftUrl,
+          owner: getWalletAddress(wallet)
         });
 
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'MINT_FAILED');
-        }
-
-        const { mint } = await response.json();
-        const nftUrl = `https://solscan.io/token/${mint}`;
-
-        // Jetzt erst den Pixel in der Datenbank speichern
-        const supabase = await getSupabase();
-        const { error: dbError } = await supabase
-          .from('pixels')
-          .upsert({
-            x: coordinates.x,
-            y: coordinates.y,
-            image_url: imageUrl,
-            nft_url: nftUrl,
-            owner: getWalletAddress(wallet)
-          });
-
-        if (dbError) {
-          monitoring.logError({
-            error: dbError,
-            context: {
-              action: 'upsert_pixel',
-              coordinates,
-              wallet: getWalletAddress(wallet),
-              mint_address: mint
-            }
-          });
-          throw dbError;
-        }
-
-        return nftUrl;
-      } catch (mintError) {
+      if (dbError) {
         monitoring.logError({
-          error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
+          error: dbError,
           context: {
-            action: 'mint_nft',
-            wallet: wallet.publicKey.toString(),
+            action: 'upsert_pixel',
             coordinates,
-            imageUrl
+            wallet: getWalletAddress(wallet),
+            mint_address: mint
           }
         });
-        throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
+        throw dbError;
       }
+
+      return nftUrl;
     } catch (error) {
       console.error('Submission failed:', error);
       monitoring.logError({

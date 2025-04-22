@@ -74,6 +74,17 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       }
 
       const arrayBuffer = await file.arrayBuffer();
+
+      // Magic Bytes Validation
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (!isPNG && !isJPEG && !isGIF) {
+        throw new Error('INVALID_IMAGE_BYTES');
+      }
+
       const mimeType = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
