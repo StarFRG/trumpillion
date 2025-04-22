@@ -82,29 +82,24 @@ CREATE POLICY "Anyone can view pixels"
   FOR SELECT
   USING (true);
 
--- Combined insert policy with all validations
-CREATE POLICY "Insert pixel with validation"
+-- Updated insert policy with wallet header validation
+CREATE POLICY "Insert pixel via wallet header"
   ON pixels
   FOR INSERT
   WITH CHECK (
-    owner IS NOT NULL AND
+    owner = current_setting('request.headers.wallet', true) AND
     x >= 0 AND x < 1000 AND
     y >= 0 AND y < 1000 AND
-    image_url ~ '^https?://' AND
+    image_url ~ '^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$' AND
     image_url IS NOT NULL
   );
 
--- Update policy for pixel owners
-CREATE POLICY "Update own pixels"
+-- Updated update policy to only allow updates before NFT minting
+CREATE POLICY "Allow update before mint"
   ON pixels
   FOR UPDATE
-  USING (true)
-  WITH CHECK (
-    x >= 0 AND x < 1000 AND
-    y >= 0 AND y < 1000 AND
-    image_url ~ '^https?://' AND
-    image_url IS NOT NULL
-  );
+  USING (nft_url IS NULL)
+  WITH CHECK (nft_url IS NULL);
 
 -- Settings Policies
 CREATE POLICY "Anyone can view settings"
@@ -147,38 +142,38 @@ END $$;
 -- Create essential storage policies
 DO $$
 BEGIN
-  -- Öffentliches Lesen
+  -- Public read access
   CREATE POLICY "Public pixel image access"
     ON storage.objects
     FOR SELECT
     USING (bucket_id = 'pixel-images');
 
-  -- Öffentlicher Upload
+  -- Public upload with validation
   CREATE POLICY "Anyone can upload pixel images"
     ON storage.objects
     FOR INSERT
     WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
 
-  -- Optional: Selektiver Zugriff
+  -- Optional: Selective access
   CREATE POLICY "storage_select"
     ON storage.objects
     FOR SELECT
     USING (bucket_id = 'pixel-images');
 
-  -- Optional: Einfüge-Regel (redundant aber kein Fehler)
+  -- Optional: Insert rule (redundant but no error)
   CREATE POLICY "storage_insert"
     ON storage.objects
     FOR INSERT
     WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
 
-  -- Optional: Update-Regel (z. B. falls Bild ersetzt werden soll)
+  -- Optional: Update rule (e.g. if image needs to be replaced)
   CREATE POLICY "storage_update"
     ON storage.objects
     FOR UPDATE
     USING (bucket_id = 'pixel-images')
     WITH CHECK (bucket_id = 'pixel-images' AND length(name) <= 255);
 
-  -- Optional: Löschen
+  -- Optional: Delete
   CREATE POLICY "storage_delete"
     ON storage.objects
     FOR DELETE
