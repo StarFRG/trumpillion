@@ -21,6 +21,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
 
       validateFile(file);
 
+      // Check pixel availability first
       const supabase = await getSupabase();
       const { data: existingPixel } = await supabase
         .from('pixels')
@@ -81,6 +82,8 @@ export const usePixelModalLogic = (onClose: () => void) => {
       if (!publicData?.publicUrl) {
         throw new Error('UPLOAD_FAILED');
       }
+
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
 
       setImageUrl(publicData.publicUrl);
       return publicData.publicUrl;
@@ -148,6 +151,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         const { mint } = await response.json();
         const nftUrl = `https://solscan.io/token/${mint}`;
 
+        // Jetzt erst den Pixel in der Datenbank speichern
         const supabase = await getSupabase();
         const { error: dbError } = await supabase
           .from('pixels')

@@ -203,32 +203,21 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         throw new Error('UPLOAD_FAILED');
       }
 
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
+
       setUploadedImageUrl(data.publicUrl);
-
-      // Update pixel record in database
-      const { error: dbError } = await supabase
-        .from('pixels')
-        .upsert({
-          x: selectedCoordinates.x,
-          y: selectedCoordinates.y,
-          image_url: data.publicUrl,
-          owner: getWalletAddress(wallet)
-        });
-
-      if (dbError) throw dbError;
-
-      setUploadSuccess(true);
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
         context: { 
-          action: 'upload_image',
+          action: 'upload_pixel',
           coordinates: selectedCoordinates,
           wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -341,6 +330,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
+      // Jetzt erst den Pixel in der Datenbank speichern
       const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')

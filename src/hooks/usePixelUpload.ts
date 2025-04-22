@@ -18,6 +18,7 @@ export const usePixelUpload = () => {
 
       validateFile(file);
 
+      // Check pixel availability first
       const supabase = await getSupabase();
       const { data: existingPixel } = await supabase
         .from('pixels')
@@ -79,14 +80,7 @@ export const usePixelUpload = () => {
         throw new Error('UPLOAD_FAILED');
       }
 
-      await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: publicData.publicUrl,
-          owner: getWalletAddress(wallet)
-        });
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
 
       return publicData.publicUrl;
     } catch (error) {

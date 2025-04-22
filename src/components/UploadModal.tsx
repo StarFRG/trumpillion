@@ -219,32 +219,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .getPublicUrl(fileName);
 
       if (!data?.publicUrl) {
-        throw new Error('Public URL konnte nicht generiert werden');
+        throw new Error('UPLOAD_FAILED');
       }
 
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
+
       setUploadedImageUrl(data.publicUrl);
-
-      // Update pixel record after successful upload
-      await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: data.publicUrl,
-          owner: getWalletAddress(wallet)
-        });
-
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
         context: { 
-          action: 'upload_image',
+          action: 'upload_pixel',
           coordinates,
           wallet: getWalletAddress(wallet)
         }
       });
       setError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -325,6 +317,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setError(null);
 
     try {
+      // Check pixel availability one last time before proceeding
+      const pixelFree = await checkPixelAvailability(coordinates.x, coordinates.y);
+      if (!pixelFree) {
+        throw new Error('PIXEL_ALREADY_TAKEN');
+      }
+
       // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
@@ -354,6 +352,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
+      // Now we can finally store the pixel in the database
       const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')
@@ -393,22 +392,30 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : t('common.error'));
+      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
     } finally {
       setLoading(false);
       setProcessingPayment(false);
     }
-  }, [uploadedImageUrl, coordinates, wallet, title, description, t, loading, processingPayment]);
+  }, [uploadedImageUrl, coordinates, wallet, title, description, handleCancel, loading, processingPayment]);
 
   useEffect(() => {
     if (isOpen && !coordinates) {
       const initCoordinates = async () => {
         try {
           if (selectedPixel) {
+            const pixelFree = await checkPixelAvailability(selectedPixel.x, selectedPixel.y);
+            if (!pixelFree) {
+              throw new Error('PIXEL_ALREADY_TAKEN');
+            }
             setCoordinates(selectedPixel);
           } else {
             const availablePixel = await findAvailablePixel();
             if (availablePixel) {
+              const pixelFree = await checkPixelAvailability(availablePixel.x, availablePixel.y);
+              if (!pixelFree) {
+                throw new Error('PIXEL_ALREADY_TAKEN');
+              }
               setCoordinates(availablePixel);
             } else {
               setError('Leider sind aktuell keine freien Pixel verfügbar.');

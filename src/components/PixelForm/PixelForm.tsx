@@ -108,17 +108,10 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
         .getPublicUrl(fileName);
 
       if (!data?.publicUrl) {
-        throw new Error('Public URL konnte nicht generiert werden');
+        throw new Error('UPLOAD_FAILED');
       }
 
-      await supabase
-        .from('pixels')
-        .upsert({
-          x: coordinates.x,
-          y: coordinates.y,
-          image_url: data.publicUrl,
-          owner: getWalletAddress(wallet)
-        });
+      // Pixel wird erst nach erfolgreichem Mint gespeichert
 
       onSuccess(data.publicUrl);
     } catch (error) {
@@ -126,7 +119,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
         context: { 
-          action: 'upload_pixel_image',
+          action: 'upload_pixel',
           coordinates,
           wallet: getWalletAddress(wallet)
         }
