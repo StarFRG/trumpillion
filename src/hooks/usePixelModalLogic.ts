@@ -5,6 +5,7 @@ import { validateFile } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 import { solanaService } from '../services/solana';
+import { usePixelStore } from '../store/pixelStore';
 
 export const usePixelModalLogic = (onClose: () => void) => {
   const [uploading, setUploading] = useState(false);
@@ -12,6 +13,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
   const wallet = useWallet();
+  const { setSelectedPixel } = usePixelStore();
 
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
@@ -127,8 +129,15 @@ export const usePixelModalLogic = (onClose: () => void) => {
         throw new Error('INVALID_IMAGE_URL_FORMAT');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
       setImageUrl(data.publicUrl);
+
+      // Update selected pixel in store
+      setSelectedPixel({
+        x: coordinates.x,
+        y: coordinates.y,
+        imageUrl: data.publicUrl,
+      });
+
       return data.publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
@@ -145,7 +154,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
     } finally {
       setUploading(false);
     }
-  }, [wallet, validatePixelAvailability]);
+  }, [wallet, validatePixelAvailability, setSelectedPixel]);
 
   const handleSubmit = useCallback(async (title: string, description: string, coordinates: { x: number; y: number }) => {
     if (!isWalletConnected(wallet)) {

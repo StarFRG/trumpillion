@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useWalletConnection } from '../../hooks/useWalletConnection';
+import { usePixelStore } from '../../store/pixelStore';
 import { getSupabase } from '../../lib/supabase';
 import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
@@ -17,17 +18,18 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { wallet } = useWalletConnection();
+  const { setSelectedPixel } = usePixelStore();
 
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
       
-      if (!file.type.startsWith('image/')) {
-        throw new Error('INVALID_IMAGE');
-      }
-
       if (file.size > 10 * 1024 * 1024) {
         throw new Error('FILE_TOO_LARGE');
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('INVALID_IMAGE');
       }
       
       if (previewUrl) {
@@ -125,6 +127,14 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       }
 
       onSuccess(data.publicUrl);
+
+      // Update selected pixel in store
+      setSelectedPixel({
+        x: coordinates.x,
+        y: coordinates.y,
+        imageUrl: data.publicUrl,
+      });
+
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -139,7 +149,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onSuccess, onError, wallet]);
+  }, [coordinates, onSuccess, onError, wallet, setSelectedPixel]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();

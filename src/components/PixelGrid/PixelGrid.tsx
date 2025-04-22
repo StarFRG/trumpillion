@@ -493,13 +493,13 @@ const PixelGrid: React.FC = () => {
       </div>
       
       {modalOpen && selectedPixel && (
-        <PixelModal 
-          isOpen={modalOpen}
-          onClose={() => setModalOpen(false)}
-          pixel={selectedPixel}
-          setSelectedPixel={setSelectedPixel}
-          fromButton={false}
-        />
+      <PixelModal 
+  isOpen={modalOpen}
+  onClose={() => setModalOpen(false)}
+  pixel={selectedPixel ? { x: selectedPixel.x, y: selectedPixel.y } : null}
+  setSelectedPixel={(pixel) => setSelectedPixel(pixel ? { ...pixel, imageUrl: null } : null)}
+  fromButton={false}
+/>
       )}
 
       {shareModalOpen && selectedPixel && (

@@ -4,11 +4,13 @@ import { getSupabase } from '../lib/supabase';
 import { validateFile } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
+import { usePixelStore } from '../store/pixelStore';
 
 export const usePixelUpload = () => {
   const wallet = useWallet();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { setSelectedPixel } = usePixelStore();
 
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
@@ -124,7 +126,13 @@ export const usePixelUpload = () => {
         throw new Error('INVALID_IMAGE_URL_FORMAT');
       }
 
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
+      // Update selected pixel in store
+      setSelectedPixel({
+        x: coordinates.x,
+        y: coordinates.y,
+        imageUrl: data.publicUrl
+      });
+
       return data.publicUrl;
     } catch (error) {
       monitoring.logErrorWithContext(error, 'usePixelUpload:uploadPixel', {
@@ -136,7 +144,7 @@ export const usePixelUpload = () => {
     } finally {
       setUploading(false);
     }
-  }, [wallet, validatePixelAvailability]);
+  }, [wallet, validatePixelAvailability, setSelectedPixel]);
 
   return {
     uploading,

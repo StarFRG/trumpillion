@@ -74,6 +74,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         if (pixel) {
           await validatePixelAvailability(pixel.x, pixel.y);
           setSelectedCoordinates(pixel);
+          setSelectedPixel(pixel);
         } else if (fromButton) {
           const availablePixel = await findAvailablePixel();
           if (availablePixel) {
@@ -156,7 +157,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       setLoading(true);
       setError(null);
 
-      // Validate pixel availability again before upload
       await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
       if (!file.type.startsWith('image/')) {
@@ -170,7 +170,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
       const arrayBuffer = await file.arrayBuffer();
 
-      // Magic Bytes Validation
       const header = new Uint8Array(arrayBuffer.slice(0, 4));
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
@@ -215,8 +214,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       if (!data?.publicUrl) {
         throw new Error('UPLOAD_FAILED');
       }
-
-      // Pixel wird erst nach erfolgreichem Mint gespeichert
 
       setUploadedImageUrl(data.publicUrl);
     } catch (error) {
@@ -311,14 +308,11 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     setError(null);
 
     try {
-      // Validate pixel availability one last time before minting
       await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
-      // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Call mint-nft function
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
         headers: {
@@ -343,7 +337,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
-      // Jetzt erst den Pixel in der Datenbank speichern
       const supabase = await getSupabase();
       const { error: dbError } = await supabase
         .from('pixels')

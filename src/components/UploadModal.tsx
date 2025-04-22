@@ -20,7 +20,7 @@ type ModalStep = 'initial' | 'confirmed';
 
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
   const wallet = useWalletConnection();
-  const { selectedPixel, findAvailablePixel } = usePixelStore();
+  const { selectedPixel, findAvailablePixel, setSelectedPixel } = usePixelStore();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
@@ -32,6 +32,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [step, setStep] = useState<ModalStep>('initial');
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [nftUrl, setNftUrl] = useState<string | null>(null);
+  const [selectedCoordinates, setSelectedCoordinates] = useState<{ x: number; y: number } | null>(null);
 
   const validateWallet = async () => {
     if (!isWalletConnected(wallet)) {
@@ -191,15 +194,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
       const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
       if (!isPNG && !isJPEG && !isGIF) {
         throw new Error('INVALID_IMAGE_BYTES');
       }
 
       const mimeType = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        gif: 'image/gif'
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
       }[fileExt] || 'image/jpeg';
 
       const cleanExt = fileExt.replace(/[^a-z0-9]/gi, '') || 'jpg';
@@ -238,6 +242,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       }
 
       setUploadedImageUrl(data.publicUrl);
+
+      // Update selected pixel in store
+      setSelectedPixel({
+        x: coordinates.x,
+        y: coordinates.y,
+        imageUrl: data.publicUrl,
+      });
+
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -253,7 +265,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     } finally {
       setLoading(false);
     }
-  }, [wallet, coordinates]);
+  }, [coordinates, wallet, setSelectedPixel]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
