@@ -55,54 +55,62 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     try {
       setUploading(true);
       setError(null);
-      
-      // 1. Validate file
+
+      // 1. Datei validieren
       validateFile(file);
+
+      // 2. Sicherstellen, dass es sich wirklich um ein Bild handelt
+      if (!file.type.startsWith('image/')) {
+        throw new Error('INVALID_IMAGE_TYPE');
+      }
+
+      // 3. Verfügbarkeit prüfen (Race-Condition vermeiden)
       await validatePixelAvailability(coordinates.x, coordinates.y);
 
-      // 2. Check magic bytes
+      // 4. Magic Bytes prüfen
       const arrayBuffer = await file.arrayBuffer();
       const header = new Uint8Array(arrayBuffer.slice(0, 4));
-      
-      // 3. Detect MIME type from bytes
+
       let detectedMime = 'image/jpeg';
-      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isPNG  = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
-      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+      const isGIF  = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
 
       if (isPNG) detectedMime = 'image/png';
       else if (isGIF) detectedMime = 'image/gif';
       else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
 
-      // 4. Create filename with correct extension
-      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      // 5. Dateiname und neues File-Objekt erstellen
+      const fileExt = detectedMime.split('/')[1]; // z.B. 'png'
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
-
-      // 5. Create blob with correct MIME type
       const blob = new Blob([arrayBuffer], { type: detectedMime });
       const correctedFile = new File([blob], fileName, { type: detectedMime });
 
-      // 6. Delete old file (instead of upsert)
+      // 6. Supabase Upload (ohne upsert)
       const supabase = await getSupabase();
+
       await supabase.storage.from('pixel-images').remove([fileName]);
 
-      // 7. Upload with secured MIME type
       const { error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, correctedFile, {
           cacheControl: '3600',
-          contentType: detectedMime // Explicitly set
+          contentType: detectedMime
         });
 
       if (storageError) throw storageError;
 
-      // 8. Get public URL
-      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+      // 7. Public URL holen
+      const { data } = supabase.storage
+        .from('pixel-images')
+        .getPublicUrl(fileName);
 
+      if (!data?.publicUrl) {
+        throw new Error('UPLOAD_FAILED');
+      }
+
+      // 8. Vorschau anzeigen & globalen Zustand aktualisieren
       onSuccess(data.publicUrl);
-
-      // 9. Set global state (important!)
       setSelectedPixel({
         x: coordinates.x,
         y: coordinates.y,
@@ -113,7 +121,7 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
       console.error('Upload failed:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
+        context: {
           action: 'upload_pixel',
           coordinates,
           wallet: getWalletAddress(wallet)
@@ -124,18 +132,14 @@ export const PixelForm: React.FC<PixelFormProps> = ({ coordinates, onSuccess, on
     } finally {
       setUploading(false);
     }
-  }, [coordinates, onSuccess, onError, wallet, validatePixelAvailability, setSelectedPixel]);
+  }, [wallet, coordinates, onSuccess, onError, validatePixelAvailability, setSelectedPixel]);
 
   const handleFileSelect = useCallback((file: File) => {
     try {
       validateFile(file);
       
       if (!file.type.startsWith('image/')) {
-        throw new Error('INVALID_IMAGE');
-      }
-
-      if (file.size > 10 * 1024 * 1024) {
-        throw new Error('FILE_TOO_LARGE');
+        throw new Error('Nur Bilddateien (.png, .jpg, .gif) sind erlaubt!');
       }
       
       if (previewUrl) {

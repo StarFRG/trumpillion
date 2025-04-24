@@ -13,7 +13,7 @@ if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
   throw new Error('Missing or invalid Solana RPC URL');
 }
 
-// Initialize Umi with RPC
+// Initialize Umi with RPC and longer timeout
 const umi = createUmi(process.env.SOLANA_RPC_URL)
   .use(web3JsRpc({ rpcEndpoint: process.env.SOLANA_RPC_URL }))
   .use(mplTokenMetadata())
@@ -109,23 +109,25 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // Check pixel availability
-    const { data: existingPixel } = await supabase
-      .from('pixels')
-      .select('x, y', { head: false })
-      .eq('x', x)
-      .eq('y', y)
-      .maybeSingle();
-
-    if (existingPixel) {
-      return { 
+    // 1. Atomic lock and check
+    try {
+      const { error: lockError } = await supabase.rpc('lock_and_check_pixel', { p_x: x, p_y: y });
+      if (lockError) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
+        };
+      }
+    } catch (error) {
+      return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
       };
     }
 
-    // Validate and load image with timeout
+    // 2. Validate and load image with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -144,7 +146,7 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
 
       const imageBuffer = await imageResponse.arrayBuffer();
 
-      // Magic byte validation
+      // 3. Magic byte validation
       const header = new Uint8Array(imageBuffer.slice(0, 4));
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;

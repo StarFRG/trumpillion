@@ -2,9 +2,9 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { useWalletConnection } from '../../hooks/useWalletConnection';
 import { usePixelStore } from '../../store/pixelStore';
 import { getSupabase } from '../../lib/supabase';
+import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
-import { validateFile } from '../../utils/validation';
 import { X, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ShareModal } from '../ShareModal';
@@ -20,7 +20,7 @@ interface PixelModalProps {
 
 export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, setSelectedPixel, fromButton }) => {
   const { t } = useTranslation();
-  const { wallet, isConnecting, connectionError } = useWalletConnection();
+  const { wallet } = useWalletConnection();
   const { findAvailablePixel } = usePixelStore();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -63,46 +63,88 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     }
   }, []);
 
-  useEffect(() => {
-    if (!isOpen || !wallet?.connected || !wallet.publicKey) return;
+  const handleUpload = useCallback(async (file: File) => {
+    if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
+    if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
 
-    setLoading(true);
-    setError(null);
+    try {
+      setLoading(true);
+      setError(null);
 
-    const initializePixel = async () => {
-      try {
-        if (pixel) {
-          await validatePixelAvailability(pixel.x, pixel.y);
-          setSelectedCoordinates(pixel);
-          setSelectedPixel(pixel);
-        } else if (fromButton) {
-          const availablePixel = await findAvailablePixel();
-          if (availablePixel) {
-            await validatePixelAvailability(availablePixel.x, availablePixel.y);
-            setSelectedCoordinates(availablePixel);
-            setSelectedPixel(availablePixel);
-          } else {
-            throw new Error('NO_FREE_PIXELS');
-          }
-        }
-      } catch (error) {
-        console.error('Error initializing pixel:', error);
-        monitoring.logError({
-          error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
-          context: { 
-            action: 'initialize_pixel',
-            wallet: wallet.publicKey?.toBase58() ?? 'undefined'
-          }
+      // 1. Validate file
+      validateFile(file);
+      await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
+
+      // 2. Check magic bytes
+      const arrayBuffer = await file.arrayBuffer();
+      const header = new Uint8Array(arrayBuffer.slice(0, 4));
+      
+      // 3. Detect MIME type from bytes
+      let detectedMime = 'image/jpeg';
+      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
+      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+      if (isPNG) detectedMime = 'image/png';
+      else if (isGIF) detectedMime = 'image/gif';
+      else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
+
+      // 4. Create filename with correct extension
+      const fileExt = detectedMime.split('/')[1];
+      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
+
+      // 5. Create blob with correct MIME type
+      const blob = new Blob([arrayBuffer], { type: detectedMime });
+      const correctedFile = new File([blob], fileName, { type: detectedMime });
+
+      // 6. Delete old file (instead of upsert)
+      const supabase = await getSupabase();
+      await supabase.storage.from('pixel-images').remove([fileName]);
+
+      // 7. Upload with secured MIME type
+      const { error: storageError } = await supabase.storage
+        .from('pixel-images')
+        .upload(fileName, correctedFile, {
+          cacheControl: '3600',
+          contentType: detectedMime
         });
-        setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
-        onClose();
-      } finally {
-        setLoading(false);
-      }
-    };
 
-    initializePixel();
-  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t, onClose, validatePixelAvailability]);
+      if (storageError) throw storageError;
+
+      // 8. Get public URL
+      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+
+      // 9. Verify the URL is accessible
+      const headCheck = await fetch(data.publicUrl, { method: 'HEAD' });
+      if (!headCheck.ok) throw new Error('PUBLIC_URL_NOT_ACCESSIBLE');
+
+      setUploadedImageUrl(data.publicUrl);
+
+      // 10. Set global state with image URL
+      setSelectedPixel({
+        x: selectedCoordinates.x,
+        y: selectedCoordinates.y,
+        imageUrl: data.publicUrl
+      });
+
+      return data.publicUrl;
+    } catch (error) {
+      console.error('Upload failed:', error);
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Upload failed'),
+        context: { 
+          action: 'upload_pixel',
+          coordinates: selectedCoordinates,
+          wallet: getWalletAddress(wallet)
+        }
+      });
+      setError(error instanceof Error ? error.message : 'Upload failed');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet, selectedCoordinates, setSelectedPixel, validatePixelAvailability]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -142,84 +184,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       return false;
     }
   }, [previewUrl]);
-
-  const handleUpload = useCallback(async (file: File) => {
-    if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
-    if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
-
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // 1. Validate file
-      validateFile(file);
-      await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
-
-      // 2. Check magic bytes
-      const arrayBuffer = await file.arrayBuffer();
-      const header = new Uint8Array(arrayBuffer.slice(0, 4));
-      
-      // 3. Detect MIME type from bytes
-      let detectedMime = 'image/jpeg';
-      const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
-      const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
-      const isGIF = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
-
-      if (isPNG) detectedMime = 'image/png';
-      else if (isGIF) detectedMime = 'image/gif';
-      else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
-
-      // 4. Create filename with correct extension
-      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
-      const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
-
-      // 5. Create blob with correct MIME type
-      const blob = new Blob([arrayBuffer], { type: detectedMime });
-      const correctedFile = new File([blob], fileName, { type: detectedMime });
-
-      // 6. Delete old file (instead of upsert)
-      const supabase = await getSupabase();
-      await supabase.storage.from('pixel-images').remove([fileName]);
-
-      // 7. Upload with secured MIME type
-      const { error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, correctedFile, {
-          cacheControl: '3600',
-          contentType: detectedMime // Explicitly set
-        });
-
-      if (storageError) throw storageError;
-
-      // 8. Get public URL
-      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
-
-      setUploadedImageUrl(data.publicUrl);
-
-      // 9. Set global state (important!)
-      setSelectedPixel({
-        x: selectedCoordinates.x,
-        y: selectedCoordinates.y,
-        imageUrl: data.publicUrl
-      });
-
-    } catch (error) {
-      console.error('Upload failed:', error);
-      monitoring.logError({
-        error: error instanceof Error ? error : new Error('Upload failed'),
-        context: { 
-          action: 'upload_pixel',
-          coordinates: selectedCoordinates,
-          wallet: getWalletAddress(wallet)
-        }
-      });
-      setError(error instanceof Error ? error.message : 'Upload failed');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCoordinates, wallet, validatePixelAvailability, setSelectedPixel]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -373,6 +337,47 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
     }
   }, [uploadedImageUrl, selectedCoordinates, wallet, title, description, t, loading, processingPayment, validatePixelAvailability]);
 
+  useEffect(() => {
+    if (!isOpen || !wallet?.connected || !wallet.publicKey) return;
+
+    setLoading(true);
+    setError(null);
+
+    const initializePixel = async () => {
+      try {
+        if (pixel) {
+          await validatePixelAvailability(pixel.x, pixel.y);
+          setSelectedCoordinates(pixel);
+          setSelectedPixel(pixel);
+        } else if (fromButton) {
+          const availablePixel = await findAvailablePixel();
+          if (availablePixel) {
+            await validatePixelAvailability(availablePixel.x, availablePixel.y);
+            setSelectedCoordinates(availablePixel);
+            setSelectedPixel(availablePixel);
+          } else {
+            throw new Error('NO_FREE_PIXELS');
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing pixel:', error);
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error('Failed to initialize pixel'),
+          context: { 
+            action: 'initialize_pixel',
+            wallet: wallet.publicKey?.toBase58() ?? 'undefined'
+          }
+        });
+        setError(error instanceof Error ? error.message : t('pixel.error.noFreePixel'));
+        onClose();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializePixel();
+  }, [isOpen, wallet, pixel, fromButton, findAvailablePixel, setSelectedPixel, t, onClose, validatePixelAvailability]);
+
   if (!isOpen) return null;
 
   if (showShareDialog) {
@@ -409,11 +414,8 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">
-              {isConnecting ? 'Connecting wallet...' : 'Please connect your wallet to continue'}
+              Please connect your wallet to continue
             </p>
-            {connectionError && (
-              <p className="text-red-500 text-sm mb-4">{connectionError}</p>
-            )}
           </div>
         ) : (
           <div className="space-y-6">
