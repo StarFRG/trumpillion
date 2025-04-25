@@ -53,16 +53,19 @@ export const getSupabase = async () => {
           }
         }
 
+        // Definiere die Basis-Headers
         const globalHeaders: Record<string, string> = {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          'x-application-name': 'trumpillion',
+          'x-application-name': 'trumpillion'
         };
 
-        // Optional Wallet Header nur im Browser
+        // Optional: wallet hinzufügen – aber nur im Browser
         if (typeof window !== 'undefined') {
           const wallet = localStorage.getItem('wallet');
-          if (wallet) globalHeaders['wallet'] = wallet;
+          if (wallet) {
+            globalHeaders['wallet'] = wallet;
+          }
         }
 
         const client = createClient<Database>(url, anonKey, {
@@ -75,7 +78,7 @@ export const getSupabase = async () => {
             schema: 'public'
           },
           global: {
-            headers: globalHeaders // <- Wichtig: immer gesetzt
+            headers: globalHeaders // <- garantiert gesetzt
           },
           realtime: {
             params: {
