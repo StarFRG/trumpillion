@@ -5,9 +5,15 @@ import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { createSignerFromKeypair, signerIdentity, publicKey } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
-import { supabase } from './supabase-client';
+import { createClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
+
+// Create Supabase client with service role key
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 // Retry helper function
 async function retry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> {
