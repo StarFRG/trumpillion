@@ -9,6 +9,21 @@ import { supabase } from './supabase-client';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
 
+// Retry helper function
+async function retry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> {
+  let attempt = 0;
+  while (attempt <= retries) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      attempt++;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
 if (!process.env.SOLANA_RPC_URL?.startsWith('http')) {
   throw new Error('Missing or invalid Solana RPC URL');
 }
@@ -84,6 +99,34 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
 
     const { wallet, name, description, imageUrl, x, y } = body;
 
+    // Validate required fields
+    if (
+      !name || !description || !imageUrl ||
+      typeof name !== 'string' || typeof description !== 'string' || typeof imageUrl !== 'string'
+    ) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: getErrorMessage('INVALID_INPUT') })
+      };
+    }
+
+    if (name.length > 100 || description.length > 500) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Input too long' })
+      };
+    }
+
+    if (!/^https?:\/\/.+\.(jpg|jpeg|png|gif)$/.test(imageUrl)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Invalid image URL' })
+      };
+    }
+
     // Validate wallet address
     let walletPublicKey;
     try {
@@ -97,15 +140,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: getErrorMessage('INVALID_WALLET_ADDRESS') })
-      };
-    }
-
-    // Validate required fields
-    if (!name || !description || !imageUrl) {
-      return { 
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('INVALID_INPUT') })
       };
     }
 
@@ -127,18 +161,20 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // 2. Validate and load image with timeout
+    // 2. Validate and load image with timeout and retry
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const imageResponse = await fetch(imageUrl, {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'image/*',
-          'User-Agent': 'Trumpillion/1.0'
-        }
-      });
+      const imageResponse = await retry(() =>
+        fetch(imageUrl, {
+          signal: controller.signal,
+          headers: {
+            'Accept': 'image/*',
+            'User-Agent': 'Trumpillion/1.0'
+          }
+        })
+      );
 
       if (!imageResponse.ok) {
         throw new Error('UPLOAD_FAILED');
@@ -177,8 +213,8 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
         }
       };
 
-      // Upload metadata with timeout
-      const { uri } = await umi.uploader.uploadJson(metadata);
+      // Upload metadata with retry
+      const { uri } = await retry(() => umi.uploader.uploadJson(metadata));
       if (!uri) {
         throw new Error('UPLOAD_FAILED');
       }
@@ -186,17 +222,19 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       // Generate mint keypair
       const mint = umi.eddsa.generateKeypair();
 
-      // Create NFT with proper error handling
+      // Create NFT with retry and proper error handling
       try {
-        await createV1(umi, {
-          mint,
-          name,
-          symbol: 'TRUMPILLION',
-          uri,
-          sellerFeeBasisPoints: 500,
-          tokenStandard: TokenStandard.NonFungible,
-          creators: [{ address: walletPublicKey, share: 100, verified: false }]
-        }).sendAndConfirm(umi);
+        await retry(() =>
+          createV1(umi, {
+            mint,
+            name,
+            symbol: 'TRUMPILLION',
+            uri,
+            sellerFeeBasisPoints: 500,
+            tokenStandard: TokenStandard.NonFungible,
+            creators: [{ address: walletPublicKey, share: 100, verified: false }]
+          }).sendAndConfirm(umi)
+        );
       } catch (mintError) {
         monitoring.logError({
           error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
