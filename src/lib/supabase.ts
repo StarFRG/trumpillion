@@ -53,6 +53,8 @@ export const getSupabase = async () => {
           }
         }
 
+        console.log('Wallet header:', typeof window !== 'undefined' ? localStorage.getItem('wallet') : 'server');
+
         const client = createClient<Database>(url, anonKey, {
           auth: {
             autoRefreshToken: true,
@@ -67,7 +69,9 @@ export const getSupabase = async () => {
               'Accept': 'application/json',
               'Content-Type': 'application/json',
               'x-application-name': 'trumpillion',
-              'wallet': typeof window !== 'undefined' ? localStorage.getItem('wallet') || '' : ''
+              ...(typeof window !== 'undefined' && localStorage.getItem('wallet')
+                ? { wallet: localStorage.getItem('wallet')! }
+                : {})
             }
           },
           realtime: {
