@@ -70,7 +70,6 @@ export default defineConfig({
     'process.env': process.env
   },
   optimizeDeps: {
-    exclude: ['@trezor/connect-common', '@trezor/env-utils'],
     esbuildOptions: {
       define: {
         global: 'globalThis'
@@ -108,8 +107,7 @@ export default defineConfig({
     target: 'esnext',
     sourcemap: true,
     commonjsOptions: {
-      transformMixedEsModules: true,
-      exclude: ['@trezor/connect-common', '@trezor/env-utils']
+      transformMixedEsModules: true
     },
     rollupOptions: {
       output: {
@@ -119,8 +117,5 @@ export default defineConfig({
         }
       }
     }
-  },
-  ssr: {
-    noExternal: ['@trezor/connect-common', '@trezor/env-utils']
   }
 });
