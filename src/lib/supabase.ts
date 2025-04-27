@@ -75,7 +75,6 @@ export const getSupabase = async () => {
             detectSessionInUrl: true
           },
           db: { schema: 'public' },
-          global: { headers: globalHeaders },
           realtime: { params: { eventsPerSecond: 10 } }
         });
 
