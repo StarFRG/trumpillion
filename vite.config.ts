@@ -70,7 +70,7 @@ export default defineConfig({
     'process.env': process.env
   },
   optimizeDeps: {
-    exclude: ['@trezor/connect-common'],
+    exclude: ['@trezor/connect-common', '@trezor/env-utils'],
     esbuildOptions: {
       define: {
         global: 'globalThis'
@@ -119,5 +119,8 @@ export default defineConfig({
         }
       }
     }
+  },
+  ssr: {
+    noExternal: ['@trezor/connect-common', '@trezor/env-utils']
   }
 });
