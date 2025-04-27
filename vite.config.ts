@@ -66,14 +66,8 @@ export default defineConfig({
     })
   ],
   define: {
-    global: {}, // Fixed: removed quotes and changed to empty object
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      define: {
-        global: '{}' // Fixed: changed to string representation of empty object
-      }
-    }
+    global: 'window',
+    'process.env': process.env
   },
   resolve: {
     alias: {
@@ -105,6 +99,9 @@ export default defineConfig({
   build: {
     target: 'esnext',
     sourcemap: true,
+    commonjsOptions: {
+      transformMixedEsModules: true
+    },
     rollupOptions: {
       output: {
         manualChunks: {
