@@ -69,6 +69,14 @@ export default defineConfig({
     global: 'window',
     'process.env': process.env
   },
+  optimizeDeps: {
+    exclude: ['@trezor/connect-common'],
+    esbuildOptions: {
+      define: {
+        global: 'globalThis'
+      }
+    }
+  },
   resolve: {
     alias: {
       crypto: 'crypto-browserify',
