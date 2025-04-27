@@ -66,20 +66,20 @@ export default defineConfig({
     })
   ],
   define: {
-    'global': 'globalThis'
+    global: {}, // Fixed: removed quotes and changed to empty object
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: '{}' // Fixed: changed to string representation of empty object
+      }
+    }
   },
   resolve: {
     alias: {
       crypto: 'crypto-browserify',
       stream: 'stream-browserify',
       process: 'process'
-    }
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      define: {
-        global: 'globalThis'
-      }
     }
   },
   server: {
