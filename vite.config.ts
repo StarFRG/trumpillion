@@ -108,7 +108,8 @@ export default defineConfig({
     target: 'esnext',
     sourcemap: true,
     commonjsOptions: {
-      transformMixedEsModules: true
+      transformMixedEsModules: true,
+      exclude: ['@trezor/connect-common', '@trezor/env-utils']
     },
     rollupOptions: {
       output: {
