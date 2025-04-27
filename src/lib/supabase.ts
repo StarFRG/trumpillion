@@ -40,25 +40,27 @@ export const getSupabase = async () => {
           }
 
           const config = await response.json();
-          url = config.url;
-          anonKey = config.anonKey;
 
-          if (!url || !url.startsWith('http')) {
+          if (!config || typeof config.url !== 'string' || typeof config.anonKey !== 'string') {
+            throw new Error('Invalid Supabase config returned from server');
+          }
+
+          if (!config.url.startsWith('http')) {
             throw new Error('Invalid Supabase URL from server');
           }
-          if (!anonKey) {
-            throw new Error('Missing Supabase Anon Key from server');
-          }
+
+          url = config.url;
+          anonKey = config.anonKey;
         }
 
-        // Saubere Header-Initialisierung
+        // Clean header initialization
         const globalHeaders: Record<string, string> = {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'x-application-name': 'trumpillion'
         };
 
-        // Optional wallet-Header ergänzen (nur im Browser)
+        // Optional wallet header (browser only)
         if (typeof window !== 'undefined') {
           const wallet = localStorage.getItem('wallet');
           if (wallet) {
@@ -73,11 +75,11 @@ export const getSupabase = async () => {
             detectSessionInUrl: true
           },
           db: { schema: 'public' },
-          global: { headers: globalHeaders }, // garantiert gesetzt
+          global: { headers: globalHeaders },
           realtime: { params: { eventsPerSecond: 10 } }
         });
 
-        // Teste die Verbindung
+        // Test connection
         const { error } = await client
           .from('settings')
           .select('value')
