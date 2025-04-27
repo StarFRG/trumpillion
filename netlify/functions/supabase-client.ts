@@ -13,10 +13,12 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     autoRefreshToken: true,
     persistSession: false
   },
+  db: { schema: 'public' },
   global: {
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
     }
-  }
+  },
+  realtime: { params: { eventsPerSecond: 10 } }
 });
