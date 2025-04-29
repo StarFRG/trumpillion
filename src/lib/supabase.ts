@@ -69,14 +69,17 @@ export const getSupabase = async () => {
         }
 
         const client = createClient<Database>(url, anonKey, {
-          auth: {
-            autoRefreshToken: true,
-            persistSession: true,
-            detectSessionInUrl: true
-          },
-          db: { schema: 'public' },
-          realtime: { params: { eventsPerSecond: 10 } }
-        });
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  },
+  db: { schema: 'public' },
+  global: {
+    headers: globalHeaders
+  },
+  realtime: { params: { eventsPerSecond: 10 } }
+});
 
         // Test connection
         const { error } = await client
