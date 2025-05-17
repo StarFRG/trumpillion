@@ -8,6 +8,13 @@ const RETRY_DELAY = 1000;
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 let supabasePromise: Promise<ReturnType<typeof createClient<Database>>> | null = null;
 
+export const getHeaders = (wallet?: string) => ({
+  'x-application-name': 'trumpillion',
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  ...(wallet ? { 'wallet': wallet } : {})
+});
+
 export const getSupabase = async () => {
   if (supabaseInstance) return supabaseInstance;
   if (supabasePromise) return supabasePromise;
@@ -32,11 +39,11 @@ export const getSupabase = async () => {
           }
         } else {
           const response = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/.netlify/functions/get-supabase-config`, {
-            headers: { 'Accept': 'application/json' }
+            headers: getHeaders()
           });
 
           if (!response.ok) {
-            throw new Error(`Failed to load Supabase configuration: ${await response.text()}`);
+            throw new Error(`Failed to load Supabase config: ${await response.text()}`);
           }
 
           const config = await response.json();
@@ -53,33 +60,25 @@ export const getSupabase = async () => {
           anonKey = config.anonKey;
         }
 
-        // Clean header initialization
-        const globalHeaders: Record<string, string> = {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'x-application-name': 'trumpillion'
-        };
-
-        // Optional wallet header (browser only)
+        // Get wallet from localStorage if available
+        let wallet: string | null = null;
         if (typeof window !== 'undefined') {
-          const wallet = localStorage.getItem('wallet');
-          if (wallet) {
-            globalHeaders['wallet'] = wallet;
-          }
+          wallet = localStorage.getItem('wallet');
         }
 
+        // Create client with global headers
         const client = createClient<Database>(url, anonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true
-  },
-  db: { schema: 'public' },
-  global: {
-    headers: globalHeaders
-  },
-  realtime: { params: { eventsPerSecond: 10 } }
-});
+          auth: {
+            autoRefreshToken: true,
+            persistSession: true,
+            detectSessionInUrl: true
+          },
+          db: { schema: 'public' },
+          realtime: { params: { eventsPerSecond: 10 } },
+          global: {
+            headers: getHeaders(wallet || undefined)
+          }
+        });
 
         // Test connection
         const { error } = await client

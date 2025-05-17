@@ -8,6 +8,7 @@ import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata
 import { createClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
+import { apiFetch } from '../../src/lib/apiService';
 
 // Create Supabase client with service role key
 const supabase = createClient(
@@ -95,7 +96,11 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
     let body: MintRequest;
     try {
       body = JSON.parse(event.body);
-    } catch {
+    } catch (parseError) {
+      monitoring.logError({
+        error: parseError instanceof Error ? parseError : new Error('Invalid JSON format'),
+        context: { action: 'parse_request_body', body: event.body }
+      });
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -117,6 +122,17 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
+    // Validate URL format
+    try {
+      new URL(imageUrl);
+    } catch {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE_URL') })
+      };
+    }
+
     if (name.length > 100 || description.length > 500) {
       return {
         statusCode: 400,
@@ -125,16 +141,8 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    if (!/^https?:\/\/.+\.(jpg|jpeg|png|gif)$/.test(imageUrl)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Invalid image URL' })
-      };
-    }
-
     // Validate wallet address
-    let walletPublicKey;
+    let walletPublicKey: ReturnType<typeof publicKey> | null = null;
     try {
       walletPublicKey = publicKey(wallet);
     } catch (error) {
@@ -167,28 +175,33 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // 2. Validate and load image with timeout and retry
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
+    // 2. Validate and load image
     try {
-      const imageResponse = await retry(() =>
-        fetch(imageUrl, {
-          signal: controller.signal,
-          headers: {
-            'Accept': 'image/*',
-            'User-Agent': 'Trumpillion/1.0'
-          }
-        })
-      );
+      const imageResponse = await apiFetch(imageUrl, {
+        method: 'GET',
+        timeout: 30000,
+        headers: {
+          'Accept': 'image/*',
+          'User-Agent': 'Trumpillion/1.0'
+        }
+      });
 
       if (!imageResponse.ok) {
         throw new Error('UPLOAD_FAILED');
       }
 
       const imageBuffer = await imageResponse.arrayBuffer();
+      const mimeType = imageResponse.headers.get('content-type');
 
-      // 3. Magic byte validation
+      if (!['image/png', 'image/jpeg', 'image/gif'].includes(mimeType || '')) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE_FORMAT') })
+        };
+      }
+
+      // Magic byte validation
       const header = new Uint8Array(imageBuffer.slice(0, 4));
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
@@ -213,57 +226,82 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
           { trait_type: 'Y Coordinate', value: y.toString() }
         ],
         properties: {
-          files: [{ uri: imageUrl, type: imageResponse.headers.get('content-type') || 'image/jpeg' }],
+          files: [{ uri: imageUrl, type: mimeType || 'image/jpeg' }],
           category: 'image',
           creators: [{ address: walletPublicKey.toString(), share: 100 }]
         }
       };
 
-      // Upload metadata with retry
-      const { uri } = await retry(() => umi.uploader.uploadJson(metadata));
-      if (!uri) {
-        throw new Error('UPLOAD_FAILED');
-      }
-
-      // Generate mint keypair
-      const mint = umi.eddsa.generateKeypair();
-
-      // Create NFT with retry and proper error handling
+      // Upload metadata with retry and logging
       try {
-        await retry(() =>
-          createV1(umi, {
-            mint,
-            name,
-            symbol: 'TRUMPILLION',
-            uri,
-            sellerFeeBasisPoints: 500,
-            tokenStandard: TokenStandard.NonFungible,
-            creators: [{ address: walletPublicKey, share: 100, verified: false }]
-          }).sendAndConfirm(umi)
-        );
-      } catch (mintError) {
-        monitoring.logError({
-          error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
-          context: { 
-            action: 'mint_nft',
+        const { uri } = await retry(() => umi.uploader.uploadJson(metadata));
+        if (!uri) {
+          monitoring.logError({
+            error: new Error('Metadata upload failed'),
+            context: { action: 'upload_metadata', metadata }
+          });
+          throw new Error('UPLOAD_FAILED');
+        }
+
+        // Generate mint keypair
+        const mint = umi.eddsa.generateKeypair();
+
+        // Create NFT with retry and proper error handling
+        try {
+          await retry(() =>
+            createV1(umi, {
+              mint,
+              name,
+              symbol: 'TRUMPILLION',
+              uri,
+              sellerFeeBasisPoints: 500,
+              tokenStandard: TokenStandard.NonFungible,
+              creators: [{ address: walletPublicKey, share: 100, verified: false }]
+            }).sendAndConfirm(umi)
+          );
+        } catch (mintError) {
+          monitoring.logError({
+            error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
+            context: { 
+              action: 'mint_nft',
+              wallet: walletPublicKey.toString(),
+              uri
+            }
+          });
+          throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
+        }
+
+        monitoring.logInfo({
+          message: 'NFT minted successfully',
+          context: {
             wallet: walletPublicKey.toString(),
-            uri
+            mint: mint.publicKey.toString()
           }
         });
-        throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
+
+        return { 
+          statusCode: 200, 
+          headers: corsHeaders,
+          body: JSON.stringify({
+            success: true,
+            mint: mint.publicKey.toString()
+          })
+        };
+
+      } catch (uploadError) {
+        monitoring.logError({
+          error: uploadError instanceof Error ? uploadError : new Error('Unknown error during metadata upload'),
+          context: { action: 'upload_metadata' }
+        });
+        throw uploadError;
       }
 
-      return { 
-        statusCode: 200, 
-        headers: corsHeaders,
-        body: JSON.stringify({
-          success: true,
-          mint: mint.publicKey.toString()
-        })
-      };
-
-    } finally {
-      clearTimeout(timeoutId);
+    } catch (error) {
+      monitoring.logError({
+        error: error instanceof Error ? error : new Error('Failed to process image'),
+        context: { action: 'process_image', imageUrl }
+      });
+      throw error;
     }
 
   } catch (error) {

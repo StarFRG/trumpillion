@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { PixelData } from '../types';
-import { getSupabase } from '../lib/supabase';
+import { getSupabase, getHeaders } from '../lib/supabase';
 import { validatePixel, validateCoordinates } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { getErrorMessage } from '../utils/errorMessages';
 
 interface PixelGridState {
   pixels: PixelData[][];
@@ -56,6 +57,10 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         }
 
         const supabase = await getSupabase();
+        if (!supabase) {
+          throw new Error('SUPABASE_NOT_INITIALIZED');
+        }
+
         const subscription = supabase
           .channel('pixels')
           .on(
@@ -97,6 +102,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           error: error instanceof Error ? error : new Error('Failed to setup realtime subscription'),
           context: { action: 'setup_realtime' }
         });
+        throw error;
       }
     },
 
@@ -109,10 +115,14 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     updatePixel: async (pixel) => {
       try {
         if (!validatePixel(pixel)) {
-          throw new Error('Invalid pixel data');
+          throw new Error('INVALID_PIXEL_DATA');
         }
 
         const supabase = await getSupabase();
+        if (!supabase) {
+          throw new Error('SUPABASE_NOT_INITIALIZED');
+        }
+
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -123,9 +133,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             nft_url: pixel.nftUrl
           }, {
             onConflict: 'x,y'
-          })
-          .select()
-          .throwOnError();
+          });
 
         if (error) throw error;
 
@@ -144,7 +152,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
     loadPixels: async (startRow = 0, startCol = 0, endRow = GRID_SIZE - 1, endCol = GRID_SIZE - 1) => {
       if (!validateCoordinates(startRow, startCol) || !validateCoordinates(endRow, endCol)) {
-        throw new Error('Invalid coordinate range');
+        throw new Error('INVALID_COORDINATES');
       }
 
       let attempts = 0;
@@ -155,22 +163,22 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           set({ loading: true, error: null });
 
           const supabase = await getSupabase();
+          if (!supabase) {
+            throw new Error('SUPABASE_NOT_INITIALIZED');
+          }
+
           const { data, error } = await supabase
             .from('pixels')
-            .select('*', {
-              head: false,
-              count: 'exact'
-            })
+            .select('*')
             .gte('x', startCol)
             .lte('x', endCol)
             .gte('y', startRow)
-            .lte('y', endRow)
-            .throwOnError();
+            .lte('y', endRow);
 
           if (error) throw error;
 
           if (!Array.isArray(data)) {
-            throw new Error('Invalid response format from database');
+            throw new Error('INVALID_RESPONSE_FORMAT');
           }
 
           const pixels = get().pixels;
@@ -195,8 +203,8 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           set({ pixels: updatedPixels, loading: false, error: null });
           return;
         } catch (error) {
-          lastError = error instanceof Error ? error : new Error('Failed to load pixels');
           attempts++;
+          lastError = error instanceof Error ? error : new Error('Failed to load pixels');
           
           if (attempts < LOAD_RETRY_ATTEMPTS) {
             console.warn(`Pixel load attempt ${attempts} failed, retrying...`);
@@ -205,7 +213,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         }
       }
 
-      const errorMessage = lastError?.message || 'Failed to load pixels after multiple attempts';
+      const errorMessage = getErrorMessage(lastError || 'Failed to load pixels after multiple attempts');
       monitoring.logError({
         error: lastError || new Error(errorMessage),
         context: { 
@@ -230,6 +238,10 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     findAvailablePixel: async () => {
       try {
         const supabase = await getSupabase();
+        if (!supabase) {
+          throw new Error('SUPABASE_NOT_INITIALIZED');
+        }
+
         const { data, error } = await supabase
           .from('pixels')
           .select('x, y', { head: false })

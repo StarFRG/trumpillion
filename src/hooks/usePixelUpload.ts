@@ -5,6 +5,10 @@ import { validateFile } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 import { usePixelStore } from '../store/pixelStore';
+import { getErrorMessage } from '../utils/errorMessages';
+
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY = 1000;
 
 export const usePixelUpload = () => {
   const wallet = useWallet();
@@ -15,6 +19,10 @@ export const usePixelUpload = () => {
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
       const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
+
       const { data: existingPixel, error } = await supabase
         .from('pixels')
         .select('owner')
@@ -23,7 +31,7 @@ export const usePixelUpload = () => {
         .maybeSingle();
 
       if (error) {
-        throw new Error('Failed to check pixel availability');
+        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
       }
 
       if (existingPixel?.owner) {
@@ -33,7 +41,7 @@ export const usePixelUpload = () => {
       return true;
     } catch (error) {
       monitoring.logError({
-        error: error instanceof Error ? error : new Error('Failed to validate pixel'),
+        error: error instanceof Error ? error : new Error('Pixel validation failed'),
         context: { action: 'validate_pixel', x, y }
       });
       throw error;
@@ -44,11 +52,15 @@ export const usePixelUpload = () => {
     if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
     if (!coordinates) throw new Error('INVALID_COORDINATES');
 
+    let attempts = 0;
+    let lastError: Error | null = null;
+    let uploadedUrl: string | null = null;
+
     try {
       setUploading(true);
       setError(null);
-      
-      // 1. Validate file
+
+      // 1. Validate file and pixel
       validateFile(file);
       await validatePixelAvailability(coordinates.x, coordinates.y);
 
@@ -67,39 +79,65 @@ export const usePixelUpload = () => {
       else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
 
       // 4. Create filename with correct extension
-      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      const fileExt = detectedMime.split('/')[1];
       const fileName = `pixel_${coordinates.x}_${coordinates.y}.${fileExt}`;
 
       // 5. Create blob with correct MIME type
       const blob = new Blob([arrayBuffer], { type: detectedMime });
       const correctedFile = new File([blob], fileName, { type: detectedMime });
 
-      // 6. Delete old file (instead of upsert)
-      const supabase = await getSupabase();
-      await supabase.storage.from('pixel-images').remove([fileName]);
+      // 6. Upload with retry mechanism
+      while (attempts < MAX_ATTEMPTS) {
+        try {
+          const supabase = await getSupabase();
+          if (!supabase) {
+            throw new Error('SUPABASE_NOT_INITIALIZED');
+          }
 
-      // 7. Upload with secured MIME type
-      const { error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, correctedFile, {
-          cacheControl: '3600',
-          contentType: detectedMime // Explicitly set
-        });
+          const { error: storageError } = await supabase.storage
+            .from('pixel-images')
+            .upload(fileName, correctedFile, {
+              cacheControl: '3600',
+              contentType: detectedMime,
+              upsert: true
+            });
 
-      if (storageError) throw storageError;
+          if (storageError) throw storageError;
 
-      // 8. Get public URL
-      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+          // 7. Get public URL
+          const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+          if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
-      // 9. Set global state (important!)
-      setSelectedPixel({
-        x: coordinates.x,
-        y: coordinates.y,
-        imageUrl: data.publicUrl
-      });
+          // 8. Verify URL is accessible
+          const headCheck = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (!headCheck.ok) {
+            throw new Error('PUBLIC_URL_NOT_ACCESSIBLE');
+          }
 
-      return data.publicUrl;
+          uploadedUrl = data.publicUrl;
+
+          // 9. Set global state
+          setSelectedPixel({
+            x: coordinates.x,
+            y: coordinates.y,
+            imageUrl: uploadedUrl
+          });
+
+          return uploadedUrl;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Upload failed');
+          attempts++;
+
+          if (attempts === MAX_ATTEMPTS) {
+            throw lastError;
+          }
+
+          console.warn(`Upload attempt ${attempts} failed, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempts));
+        }
+      }
+
+      throw lastError || new Error('UPLOAD_FAILED');
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -107,10 +145,11 @@ export const usePixelUpload = () => {
         context: { 
           action: 'upload_pixel',
           coordinates,
-          wallet: getWalletAddress(wallet)
+          wallet: getWalletAddress(wallet),
+          attempts
         }
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
+      setError(getErrorMessage(error));
       throw error;
     } finally {
       setUploading(false);

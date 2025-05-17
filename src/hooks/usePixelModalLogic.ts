@@ -6,6 +6,10 @@ import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 import { solanaService } from '../services/solana';
 import { usePixelStore } from '../store/pixelStore';
+import { getErrorMessage } from '../utils/errorMessages';
+
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY = 1000;
 
 export const usePixelModalLogic = (onClose: () => void) => {
   const [uploading, setUploading] = useState(false);
@@ -18,6 +22,10 @@ export const usePixelModalLogic = (onClose: () => void) => {
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
       const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
+
       const { data: existingPixel, error } = await supabase
         .from('pixels')
         .select('owner')
@@ -26,7 +34,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
         .maybeSingle();
 
       if (error) {
-        throw new Error('Failed to check pixel availability');
+        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
       }
 
       if (existingPixel?.owner) {
@@ -47,19 +55,20 @@ export const usePixelModalLogic = (onClose: () => void) => {
     if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
     if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
 
+    let attempts = 0;
+    let lastError: Error | null = null;
+    let uploadedUrl: string | null = null;
+
     try {
       setUploading(true);
       setError(null);
-      
-      // 1. Validate file
+
       validateFile(file);
       await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
-      // 2. Check magic bytes
       const arrayBuffer = await file.arrayBuffer();
       const header = new Uint8Array(arrayBuffer.slice(0, 4));
       
-      // 3. Detect MIME type from bytes
       let detectedMime = 'image/jpeg';
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
@@ -69,42 +78,61 @@ export const usePixelModalLogic = (onClose: () => void) => {
       else if (isGIF) detectedMime = 'image/gif';
       else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
 
-      // 4. Create filename with correct extension
-      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      const fileExt = detectedMime.split('/')[1];
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
-      // 5. Create blob with correct MIME type
       const blob = new Blob([arrayBuffer], { type: detectedMime });
       const correctedFile = new File([blob], fileName, { type: detectedMime });
 
-      // 6. Delete old file (instead of upsert)
-      const supabase = await getSupabase();
-      await supabase.storage.from('pixel-images').remove([fileName]);
+      while (attempts < MAX_ATTEMPTS) {
+        try {
+          const supabase = await getSupabase();
+          if (!supabase) {
+            throw new Error('SUPABASE_NOT_INITIALIZED');
+          }
 
-      // 7. Upload with secured MIME type
-      const { error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, correctedFile, {
-          cacheControl: '3600',
-          contentType: detectedMime // Explicitly set
-        });
+          const { error: storageError } = await supabase.storage
+            .from('pixel-images')
+            .upload(fileName, correctedFile, {
+              cacheControl: '3600',
+              contentType: detectedMime,
+              upsert: true
+            });
 
-      if (storageError) throw storageError;
+          if (storageError) throw storageError;
 
-      // 8. Get public URL
-      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+          const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+          if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
-      setImageUrl(data.publicUrl);
+          const headCheck = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (!headCheck.ok) {
+            throw new Error('PUBLIC_URL_NOT_ACCESSIBLE');
+          }
 
-      // 9. Set global state (important!)
-      setSelectedPixel({
-        x: selectedCoordinates.x,
-        y: selectedCoordinates.y,
-        imageUrl: data.publicUrl
-      });
+          uploadedUrl = data.publicUrl;
+          setImageUrl(uploadedUrl);
 
-      return data.publicUrl;
+          setSelectedPixel({
+            x: selectedCoordinates.x,
+            y: selectedCoordinates.y,
+            imageUrl: uploadedUrl
+          });
+
+          return uploadedUrl;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Upload failed');
+          attempts++;
+
+          if (attempts === MAX_ATTEMPTS) {
+            throw lastError;
+          }
+
+          console.warn(`Upload attempt ${attempts} failed, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempts));
+        }
+      }
+
+      throw lastError || new Error('UPLOAD_FAILED');
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -112,10 +140,11 @@ export const usePixelModalLogic = (onClose: () => void) => {
         context: { 
           action: 'upload_pixel',
           coordinates: selectedCoordinates,
-          wallet: getWalletAddress(wallet)
+          wallet: getWalletAddress(wallet),
+          attempts
         }
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
+      setError(getErrorMessage(error));
       throw error;
     } finally {
       setUploading(false);
@@ -139,19 +168,17 @@ export const usePixelModalLogic = (onClose: () => void) => {
     setError(null);
 
     try {
-      // Check pixel availability one last time before proceeding
       await validatePixelAvailability(coordinates.x, coordinates.y);
 
-      // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Call mint-nft function
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'x-application-name': 'trumpillion'
         },
         body: JSON.stringify({
           wallet: wallet.publicKey.toString(),
@@ -171,8 +198,11 @@ export const usePixelModalLogic = (onClose: () => void) => {
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
-      // Now we can finally store the pixel in the database
       const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
+
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -181,6 +211,8 @@ export const usePixelModalLogic = (onClose: () => void) => {
           image_url: imageUrl,
           nft_url: nftUrl,
           owner: getWalletAddress(wallet)
+        }, {
+          onConflict: 'x,y'
         });
 
       if (dbError) {
@@ -207,7 +239,7 @@ export const usePixelModalLogic = (onClose: () => void) => {
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
+      setError(getErrorMessage(error));
       throw error;
     } finally {
       setProcessingPayment(false);

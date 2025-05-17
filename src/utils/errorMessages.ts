@@ -10,19 +10,33 @@ type ErrorCode =
   | 'SUPABASE_PIXEL_CHECK_FAILED'
   | 'INVALID_COORDINATES'
   | 'INVALID_IMAGE'
-  | 'MINT_FAILED';
+  | 'MINT_FAILED'
+  | 'SUPABASE_NOT_INITIALIZED'
+  | 'PUBLIC_URL_NOT_ACCESSIBLE'
+  | 'INVALID_IMAGE_BYTES'
+  | 'FILE_TOO_LARGE'
+  | 'INVALID_PIXEL_DATA'
+  | 'INVALID_RESPONSE_FORMAT'
+  | 'NO_FREE_PIXELS';
 
 const ERROR_MESSAGES: Record<ErrorCode, string> = {
-  WALLET_NOT_CONNECTED: 'Bitte verbinde deine Wallet.',
-  INSUFFICIENT_BALANCE: 'Dein Guthaben reicht nicht aus. Du brauchst mindestens 1 SOL.',
-  PIXEL_ALREADY_TAKEN: 'Dieser Pixel wurde bereits vergeben.',
-  UPLOAD_FAILED: 'Fehler beim Hochladen des Bildes.',
-  BACKEND_ERROR: 'Serverfehler – bitte versuche es später erneut.',
-  UNEXPECTED_ERROR: 'Ein unbekannter Fehler ist aufgetreten.',
-  SUPABASE_PIXEL_CHECK_FAILED: 'Fehler bei der Pixel-Verfügbarkeitsprüfung.',
-  INVALID_COORDINATES: 'Ungültige Pixel-Koordinaten.',
-  INVALID_IMAGE: 'Ungültiges Bildformat oder zu große Datei.',
-  MINT_FAILED: 'NFT konnte nicht erstellt werden.'
+  WALLET_NOT_CONNECTED: 'Please connect your wallet to continue',
+  INSUFFICIENT_BALANCE: 'Insufficient balance. You need at least 1 SOL.',
+  PIXEL_ALREADY_TAKEN: 'This pixel is already taken.',
+  UPLOAD_FAILED: 'Failed to upload image.',
+  BACKEND_ERROR: 'Server error - please try again later.',
+  UNEXPECTED_ERROR: 'An unexpected error occurred.',
+  SUPABASE_PIXEL_CHECK_FAILED: 'Failed to check pixel availability.',
+  INVALID_COORDINATES: 'Invalid pixel coordinates.',
+  INVALID_IMAGE: 'Invalid image format or file too large.',
+  MINT_FAILED: 'Failed to mint NFT.',
+  SUPABASE_NOT_INITIALIZED: 'Database connection failed.',
+  PUBLIC_URL_NOT_ACCESSIBLE: 'Failed to verify uploaded image.',
+  INVALID_IMAGE_BYTES: 'Invalid image format.',
+  FILE_TOO_LARGE: 'File size must not exceed 10MB.',
+  INVALID_PIXEL_DATA: 'Invalid pixel data.',
+  INVALID_RESPONSE_FORMAT: 'Invalid response from server.',
+  NO_FREE_PIXELS: 'No free pixels available.'
 };
 
 export function getErrorMessage(error: unknown): string {

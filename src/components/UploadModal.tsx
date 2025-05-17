@@ -2,9 +2,9 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { useWalletConnection } from '../hooks/useWalletConnection';
 import { usePixelStore } from '../store/pixelStore';
 import { getSupabase } from '../lib/supabase';
+import { validateFile } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
-import { validateFile } from '../utils/validation';
 import { X, Upload } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getErrorMessage } from '../utils/errorMessages';
@@ -17,6 +17,9 @@ interface UploadModalProps {
 }
 
 type ModalStep = 'initial' | 'confirmed';
+
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY = 1000;
 
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
   const { wallet } = useWalletConnection();
@@ -38,6 +41,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
       const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
+
       const { data: existingPixel, error } = await supabase
         .from('pixels')
         .select('owner')
@@ -46,7 +53,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         .maybeSingle();
 
       if (error) {
-        throw new Error('Failed to check pixel availability');
+        throw new Error('SUPABASE_PIXEL_CHECK_FAILED');
       }
 
       if (existingPixel?.owner) {
@@ -67,19 +74,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
     if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
 
+    let attempts = 0;
+    let lastError: Error | null = null;
+    let uploadedUrl: string | null = null;
+
     try {
       setLoading(true);
       setError(null);
-      
-      // 1. Validate file
+
       validateFile(file);
       await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
-      // 2. Check magic bytes
       const arrayBuffer = await file.arrayBuffer();
       const header = new Uint8Array(arrayBuffer.slice(0, 4));
       
-      // 3. Detect MIME type from bytes
       let detectedMime = 'image/jpeg';
       const isPNG = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
       const isJPEG = header[0] === 0xFF && header[1] === 0xD8;
@@ -89,41 +97,61 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       else if (isGIF) detectedMime = 'image/gif';
       else if (!isJPEG) throw new Error('INVALID_IMAGE_BYTES');
 
-      // 4. Create filename with correct extension
-      const fileExt = detectedMime.split('/')[1]; // 'jpeg', 'png', etc.
+      const fileExt = detectedMime.split('/')[1];
       const fileName = `pixel_${selectedCoordinates.x}_${selectedCoordinates.y}.${fileExt}`;
 
-      // 5. Create blob with correct MIME type
       const blob = new Blob([arrayBuffer], { type: detectedMime });
       const correctedFile = new File([blob], fileName, { type: detectedMime });
 
-      // 6. Delete old file (instead of upsert)
-      const supabase = await getSupabase();
-      await supabase.storage.from('pixel-images').remove([fileName]);
+      while (attempts < MAX_ATTEMPTS) {
+        try {
+          const supabase = await getSupabase();
+          if (!supabase) {
+            throw new Error('SUPABASE_NOT_INITIALIZED');
+          }
 
-      // 7. Upload with secured MIME type
-      const { error: storageError } = await supabase.storage
-        .from('pixel-images')
-        .upload(fileName, correctedFile, {
-          cacheControl: '3600',
-          contentType: detectedMime // Explicitly set
-        });
+          const { error: storageError } = await supabase.storage
+            .from('pixel-images')
+            .upload(fileName, correctedFile, {
+              cacheControl: '3600',
+              contentType: detectedMime,
+              upsert: true
+            });
 
-      if (storageError) throw storageError;
+          if (storageError) throw storageError;
 
-      // 8. Get public URL
-      const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
-      if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
+          const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
+          if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
-      setUploadedImageUrl(data.publicUrl);
+          const headCheck = await fetch(data.publicUrl, { method: 'HEAD' });
+          if (!headCheck.ok) {
+            throw new Error('PUBLIC_URL_NOT_ACCESSIBLE');
+          }
 
-      // 9. Set global state (important!)
-      setSelectedPixel({
-        x: selectedCoordinates.x,
-        y: selectedCoordinates.y,
-        imageUrl: data.publicUrl
-      });
+          uploadedUrl = data.publicUrl;
+          setUploadedImageUrl(uploadedUrl);
 
+          setSelectedPixel({
+            x: selectedCoordinates.x,
+            y: selectedCoordinates.y,
+            imageUrl: uploadedUrl
+          });
+
+          return uploadedUrl;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Upload failed');
+          attempts++;
+
+          if (attempts === MAX_ATTEMPTS) {
+            throw lastError;
+          }
+
+          console.warn(`Upload attempt ${attempts} failed, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempts));
+        }
+      }
+
+      throw lastError || new Error('UPLOAD_FAILED');
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -131,15 +159,16 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         context: { 
           action: 'upload_pixel',
           coordinates: selectedCoordinates,
-          wallet: getWalletAddress(wallet)
+          wallet: getWalletAddress(wallet),
+          attempts
         }
       });
-      setError(error instanceof Error ? error.message : 'Upload failed');
+      setError(getErrorMessage(error));
       throw error;
     } finally {
       setLoading(false);
     }
-  }, [selectedCoordinates, wallet, validatePixelAvailability, setSelectedPixel]);
+  }, [wallet, selectedCoordinates, validatePixelAvailability, setSelectedPixel]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -175,7 +204,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         URL.revokeObjectURL(previewUrl);
       }
       setPreviewUrl(null);
-      setError(error instanceof Error ? error.message : 'Invalid file');
+      setError(getErrorMessage(error));
       return false;
     }
   }, [previewUrl]);
@@ -202,6 +231,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       if (fileName) {
         try {
           const supabase = await getSupabase();
+          if (!supabase) {
+            throw new Error('SUPABASE_NOT_INITIALIZED');
+          }
           await supabase.storage.from('pixel-images').remove([fileName]);
         } catch (error) {
           monitoring.logError({
@@ -255,22 +287,18 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
     setError(null);
 
     try {
-      // Check pixel availability one last time before proceeding
-      const pixelFree = await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
-      if (!pixelFree) {
-        throw new Error('PIXEL_ALREADY_TAKEN');
-      }
+      await validatePixelAvailability(selectedCoordinates.x, selectedCoordinates.y);
 
-      // Process payment first
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      // Call mint-nft function
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'x-application-name': 'trumpillion',
+          'wallet': getWalletAddress(wallet)
         },
         body: JSON.stringify({
           wallet: wallet.publicKey.toString(),
@@ -290,8 +318,11 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
-      // Now we can finally store the pixel in the database
       const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
+
       const { error: dbError } = await supabase
         .from('pixels')
         .upsert({
@@ -300,6 +331,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           image_url: uploadedImageUrl,
           nft_url: nftUrl,
           owner: getWalletAddress(wallet)
+        }, {
+          onConflict: 'x,y'
         });
 
       if (dbError) {
@@ -316,7 +349,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
       }
 
       setUploadSuccess(true);
-      toast.success('NFT erfolgreich erstellt!');
+      toast.success('NFT successfully created!');
       setTimeout(() => {
         handleCancel();
       }, 2000);
@@ -330,7 +363,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
           wallet: getWalletAddress(wallet)
         }
       });
-      setError(error instanceof Error ? error.message : 'Failed to mint NFT');
+      setError(getErrorMessage(error));
     } finally {
       setLoading(false);
       setProcessingPayment(false);
@@ -384,7 +417,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
         {!isWalletConnected(wallet) ? (
           <div className="text-center py-8">
             <p className="text-gray-300 mb-4">
-              Verbinde dein Wallet um fortzufahren
+              Please connect your wallet to continue
             </p>
           </div>
         ) : (
@@ -399,6 +432,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                 placeholder="Make it memorable - use your name or a catchy title"
+                maxLength={100}
               />
             </div>
 
@@ -411,6 +445,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => 
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500 h-24 resize-none"
                 placeholder="Share why this moment matters to you. What does Trump mean to you? Make it personal!"
+                maxLength={500}
               />
             </div>
 
