@@ -1,11 +1,11 @@
 import { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { web3JsRpc } from '@metaplex-foundation/umi-rpc-web3js';
 import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
 import { createSignerFromKeypair, signerIdentity, publicKey } from '@metaplex-foundation/umi';
 import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
-import { createClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
 import { apiFetch } from '../../src/lib/apiService';
@@ -63,7 +63,7 @@ const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, wallet'
 };
 
 interface MintRequest {
@@ -157,25 +157,46 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
       };
     }
 
-    // 1. Atomic lock and check
-    try {
-      const { error: lockError } = await supabase.rpc('lock_and_check_pixel', { p_x: x, p_y: y });
-      if (lockError) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
-        };
-      }
-    } catch (error) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('PIXEL_ALREADY_TAKEN') })
-      };
+    // Set auth directly using service role key
+    supabase.auth.setAuth(process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+    // Set wallet header via set_config
+    const { data: configData, error: setConfigError } = await supabase.rpc('set_config', {
+      key: 'request.headers.wallet',
+      value: wallet
+    });
+
+    if (setConfigError || !configData) {
+      monitoring.logError({
+        error: setConfigError || new Error('set_config did not return data'),
+        context: {
+          action: 'set_config',
+          wallet,
+        },
+      });
+      throw new Error('Failed to set Supabase header');
     }
 
-    // 2. Validate and load image
+    // Perform atomic lock check
+    const { data, error: lockError } = await supabase.rpc(
+      'lock_and_check_pixel',
+      { p_x: x, p_y: y }
+    );
+
+    if (lockError || !data) {
+      monitoring.logError({
+        error: lockError || new Error('No data returned from lock_and_check_pixel'),
+        context: {
+          action: 'lock_and_check_pixel',
+          x,
+          y,
+          wallet,
+        },
+      });
+      throw new Error('Failed to lock pixel in Supabase');
+    }
+
+    // Validate and load image with timeout and retry
     try {
       const imageResponse = await apiFetch(imageUrl, {
         method: 'GET',
@@ -259,6 +280,24 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
               creators: [{ address: walletPublicKey, share: 100, verified: false }]
             }).sendAndConfirm(umi)
           );
+
+          monitoring.logInfo({
+            message: 'NFT minted successfully',
+            context: {
+              wallet: walletPublicKey.toString(),
+              mint: mint.publicKey.toString()
+            }
+          });
+
+          return { 
+            statusCode: 200, 
+            headers: corsHeaders,
+            body: JSON.stringify({
+              success: true,
+              mint: mint.publicKey.toString()
+            })
+          };
+
         } catch (mintError) {
           monitoring.logError({
             error: mintError instanceof Error ? mintError : new Error('NFT mint failed'),
@@ -270,23 +309,6 @@ export const handler: Handler = async (event): Promise<ReturnType<Handler>> => {
           });
           throw new Error('NFT_MINT_FAILED: ' + (mintError instanceof Error ? mintError.message : 'Unknown error'));
         }
-
-        monitoring.logInfo({
-          message: 'NFT minted successfully',
-          context: {
-            wallet: walletPublicKey.toString(),
-            mint: mint.publicKey.toString()
-          }
-        });
-
-        return { 
-          statusCode: 200, 
-          headers: corsHeaders,
-          body: JSON.stringify({
-            success: true,
-            mint: mint.publicKey.toString()
-          })
-        };
 
       } catch (uploadError) {
         monitoring.logError({

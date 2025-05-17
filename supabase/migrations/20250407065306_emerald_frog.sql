@@ -36,7 +36,7 @@ CREATE TABLE pixels (
   updated_at timestamptz DEFAULT now(),
   CONSTRAINT unique_pixel_coordinates UNIQUE (x, y),
   CONSTRAINT valid_coordinates CHECK (x >= 0 AND x < 1000 AND y >= 0 AND y < 1000),
-  CONSTRAINT valid_image_url CHECK (image_url ~ '^https?://' AND length(image_url) <= 2048)
+  CONSTRAINT valid_image_url CHECK (image_url ~ '^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$')
 );
 
 -- Create settings table
@@ -90,8 +90,8 @@ CREATE POLICY "Insert pixel via wallet header"
     owner = current_setting('request.headers.wallet', true) AND
     x >= 0 AND x < 1000 AND
     y >= 0 AND y < 1000 AND
-    image_url ~ '^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$' AND
-    image_url IS NOT NULL
+   image_url IS NOT NULL AND
+image_url ~ '^https:\/\/.*\/pixel-images\/.*\.(png|jpg|jpeg|gif)$'
   );
 
 -- Updated update policy to only allow updates before NFT minting
