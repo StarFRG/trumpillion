@@ -106,4 +106,12 @@ async function initSupabase() {
   throw lastError ?? new Error('Failed to initialize Supabase after all retries');
 }
 
-export const supabase: ReturnType<typeof createClient<Database>> = await initSupabase();
+/**
+ * Asynchrone Methode zum Abrufen der Supabase-Instanz.
+ */
+export const getSupabase = async () => {
+  if (!supabaseInstance) {
+    await initSupabase();
+  }
+  return supabaseInstance;
+};
