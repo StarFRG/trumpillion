@@ -3,7 +3,8 @@ import { monitoring } from '../../src/services/monitoring';
 import type { Database } from '../../src/types';
 
 const RETRY_ATTEMPTS = 3;
-const RETRY_DELAY = 1000;
+const RETRY_DELAY = 2000; // Increased from 1000ms to 2000ms
+const CONNECTION_TIMEOUT = 60000; // 60 seconds
 
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 let isInitializing = false;
@@ -16,10 +17,10 @@ async function initSupabase() {
     throw new Error('Missing or invalid Supabase environment variables');
   }
 
-  // Schutz vor paralleler Initialisierung
+  // Protection against parallel initialization
   if (isInitializing || supabaseInstance) {
     console.log("Supabase is already initializing, waiting...");
-    const waitTimeout = 5000;
+    const waitTimeout = CONNECTION_TIMEOUT;
     const start = Date.now();
     while (!supabaseInstance && (Date.now() - start < waitTimeout)) {
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -47,7 +48,7 @@ async function initSupabase() {
           supabaseKey,
           {
             auth: {
-              autoRefreshToken: true,
+              autoRefreshToken: false,
               persistSession: false
             },
             db: {
@@ -57,20 +58,24 @@ async function initSupabase() {
               headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'x-application-name': 'trumpillion'
               }
             }
           }
         );
 
-        // **Wichtig:** Hier wird der Auth-Header explizit gesetzt!
-        client.auth.setAuth(supabaseKey);
+        // Test query with timeout
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Connection test timeout')), CONNECTION_TIMEOUT);
+        });
 
-        // Test-Query, um die Verbindung zu validieren
-        const { data, error } = await client
+        const queryPromise = client
           .from('settings')
           .select('value')
           .eq('key', 'main_image')
           .single();
+
+        const { error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
         if (error && error.code !== 'PGRST116') {
           throw error;
@@ -117,9 +122,6 @@ async function initSupabase() {
   throw lastError ?? new Error('Failed to initialize Supabase after all retries');
 }
 
-/**
- * Asynchrone Methode zum Abrufen der Supabase-Instanz.
- */
 export const getSupabase = async () => {
   if (!supabaseInstance) {
     await initSupabase();

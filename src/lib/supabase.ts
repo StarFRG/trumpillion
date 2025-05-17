@@ -3,16 +3,18 @@ import type { Database } from '../types';
 import { monitoring } from '../services/monitoring';
 
 const RETRY_ATTEMPTS = 3;
-const RETRY_DELAY = 1000;
+const RETRY_DELAY = 2000;
+const CONNECTION_TIMEOUT = 60000;
 
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 let supabasePromise: Promise<ReturnType<typeof createClient<Database>>> | null = null;
+let isInitializing = false;
 
 export const getHeaders = (wallet?: string) => ({
   'x-application-name': 'trumpillion',
   'Content-Type': 'application/json',
   'Accept': 'application/json',
-  ...(wallet ? { 'request.headers.wallet': wallet } : {}) // <- Hier korrekt gesetzt
+  ...(wallet ? { 'wallet': wallet } : {})
 });
 
 export const getSupabase = async () => {
@@ -20,105 +22,120 @@ export const getSupabase = async () => {
   if (supabasePromise) return supabasePromise;
 
   supabasePromise = (async () => {
-    let attempts = 0;
-
-    // Wallet frühzeitig abrufen
-    const wallet: string | null = typeof window !== 'undefined'
-      ? sessionStorage.getItem('wallet') || localStorage.getItem('wallet')
-      : null;
-
-    while (attempts < RETRY_ATTEMPTS) {
-      try {
-        let url: string;
-        let anonKey: string;
-
-        if (import.meta.env.DEV) {
-          url = import.meta.env.VITE_SUPABASE_URL;
-          anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-          if (!url || !url.startsWith('http')) {
-            throw new Error('Missing or invalid Supabase URL');
-          }
-          if (!anonKey) {
-            throw new Error('Missing Supabase Anon Key');
-          }
-        } else {
-          const response = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/.netlify/functions/get-supabase-config`, {
-            headers: getHeaders(wallet)
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`❌ Failed to load Supabase config: ${errorText}`);
-            throw new Error(`Failed to load Supabase config: ${errorText}`);
-          }
-
-          const config = await response.json();
-
-          if (!config || typeof config.url !== 'string' || typeof config.anonKey !== 'string') {
-            throw new Error('Invalid Supabase config returned from server');
-          }
-
-          url = config.url;
-          anonKey = config.anonKey;
-        }
-
-        // Create client with proper headers
-        const client = createClient<Database>(url, anonKey, {
-          auth: {
-            autoRefreshToken: true,
-            persistSession: true,
-            detectSessionInUrl: true
-          },
-          db: { schema: 'public' },
-          realtime: { params: { eventsPerSecond: 10 } },
-          global: {
-            headers: getHeaders(wallet) // <- Hier wird der Header sauber übergeben
-          }
-        });
-
-        // Test connection (mit Retry)
-        const { data, error } = await client
-          .from('settings')
-          .select('value')
-          .eq('key', 'main_image')
-          .single();
-
-        if (error) {
-          console.warn(`⚠️ Supabase connection test failed, retrying... (${attempts + 1})`, error.message);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          attempts++;
-          continue;
-        }
-
-        console.log('✅ Supabase connection successful', data);
-
-        supabaseInstance = client;
-        supabasePromise = null;
-        return client;
-      } catch (error) {
-        attempts++;
-
-        if (attempts === RETRY_ATTEMPTS) {
-          supabasePromise = null;
-          monitoring.logError({
-            error: error instanceof Error ? error : new Error('Failed to init Supabase'),
-            context: {
-              source: 'getSupabase',
-              attempts,
-              retryExhausted: true
-            }
-          });
-          throw error;
-        }
-
-        console.warn(`Supabase connection attempt ${attempts} failed...`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    if (isInitializing) {
+      const waitTimeout = CONNECTION_TIMEOUT;
+      const start = Date.now();
+      while (isInitializing && (Date.now() - start < waitTimeout)) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+      if (isInitializing) {
+        throw new Error('Supabase initialization timeout');
+      }
+      return supabaseInstance!;
     }
 
-    supabasePromise = null;
-    throw new Error('Failed to initialize Supabase after all retry attempts');
+    isInitializing = true;
+    let attempts = 0;
+
+    try {
+      while (attempts < RETRY_ATTEMPTS) {
+        try {
+          let url: string;
+          let anonKey: string;
+
+          if (import.meta.env.DEV) {
+            url = import.meta.env.VITE_SUPABASE_URL;
+            anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+            if (!url?.startsWith('http')) {
+              throw new Error('Missing or invalid Supabase URL');
+            }
+            if (!anonKey) {
+              throw new Error('Missing Supabase Anon Key');
+            }
+          } else {
+            const response = await fetch('/.netlify/functions/get-supabase-config', {
+              headers: getHeaders()
+            });
+
+            if (!response.ok) {
+              throw new Error(`Failed to load Supabase config: ${await response.text()}`);
+            }
+
+            const config = await response.json();
+            if (!config?.url?.startsWith('http') || !config?.anonKey) {
+              throw new Error('Invalid Supabase config returned from server');
+            }
+
+            url = config.url;
+            anonKey = config.anonKey;
+          }
+
+          // Create client with global headers
+          const client = createClient<Database>(url, anonKey, {
+            auth: {
+              autoRefreshToken: true,
+              persistSession: true,
+              detectSessionInUrl: true
+            },
+            db: { schema: 'public' },
+            realtime: { 
+              params: { 
+                eventsPerSecond: 10 
+              } 
+            },
+            global: {
+              headers: getHeaders()
+            }
+          });
+
+          // Test connection with timeout
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Connection test timeout')), CONNECTION_TIMEOUT);
+          });
+
+          const testQuery = client
+            .from('settings')
+            .select('value')
+            .eq('key', 'main_image')
+            .single();
+
+          const { error } = await Promise.race([testQuery, timeoutPromise]) as any;
+
+          if (error && error.code !== 'PGRST116') {
+            throw error;
+          }
+
+          console.log('✅ Supabase connection successful');
+          supabaseInstance = client;
+          supabasePromise = null;
+          return client;
+        } catch (error) {
+          attempts++;
+          const delay = RETRY_DELAY * Math.pow(2, attempts - 1);
+
+          if (attempts === RETRY_ATTEMPTS) {
+            monitoring.logError({
+              error: error instanceof Error ? error : new Error('Failed to init Supabase'),
+              context: {
+                source: 'getSupabase',
+                attempts,
+                retryExhausted: true
+              }
+            });
+            throw error;
+          }
+
+          console.warn(`Supabase connection attempt ${attempts} failed, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+
+      throw new Error('Failed to initialize Supabase after all retry attempts');
+    } finally {
+      isInitializing = false;
+      supabasePromise = null;
+    }
   })();
 
   return supabasePromise;

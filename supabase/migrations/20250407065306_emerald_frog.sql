@@ -87,7 +87,7 @@ CREATE POLICY "Insert pixel via wallet header"
   ON pixels
   FOR INSERT
   WITH CHECK (
-    owner = current_setting('request.headers.wallet', true) AND
+   owner = current_setting('request.headers.wallet', true) AND
     x >= 0 AND x < 1000 AND
     y >= 0 AND y < 1000 AND
    image_url IS NOT NULL AND

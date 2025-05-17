@@ -14,7 +14,7 @@ const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, wallet'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-application-name, wallet'
 };
 
 interface MintRequest {
@@ -38,7 +38,8 @@ const supabase = createClient(
     global: {
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'x-application-name': 'trumpillion'
       }
     }
   }
@@ -117,17 +118,18 @@ export const handler: Handler = async (event) => {
     // Validate wallet address
     const walletPublicKey = publicKey(wallet);
 
-    // Set global headers for Supabase
-    supabase.auth.setAuth(process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    // Set headers for RLS
+    const headers = {
+      'wallet': wallet,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
 
-    // Perform atomic lock check with headers
-    const { data, error } = await supabase.rpc('lock_and_check_pixel', { p_x: x, p_y: y }, {
-     headers: {
-    'request.headers.wallet': wallet, // ✅ Korrekt für RLS
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-      }
-    });
+    // Perform atomic lock check
+    const { data, error } = await supabase.rpc('lock_and_check_pixel', 
+      { p_x: x, p_y: y },
+      { headers }
+    );
 
     if (error || !data) {
       monitoring.logError({

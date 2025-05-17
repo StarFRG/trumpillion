@@ -36,12 +36,20 @@ export async function apiFetch(url: string, options: ApiOptions = {}): Promise<R
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
+      // Get wallet from localStorage if available
+      let wallet = '';
+      if (typeof window !== 'undefined') {
+        wallet = localStorage.getItem('wallet') || '';
+      }
+
       const response = await fetch(url, {
         ...fetchOptions,
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'x-application-name': 'trumpillion',
+          'wallet': wallet,
           ...(fetchOptions.headers || {})
         },
       });
