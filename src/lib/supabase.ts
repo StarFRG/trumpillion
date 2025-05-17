@@ -12,7 +12,7 @@ export const getHeaders = (wallet?: string) => ({
   'x-application-name': 'trumpillion',
   'Content-Type': 'application/json',
   'Accept': 'application/json',
-  ...(wallet ? { 'wallet': wallet } : {})
+  ...(wallet ? { 'request.headers.wallet': wallet } : {}) // <- Hier korrekt gesetzt
 });
 
 export const getSupabase = async () => {
@@ -21,6 +21,11 @@ export const getSupabase = async () => {
 
   supabasePromise = (async () => {
     let attempts = 0;
+
+    // Wallet frühzeitig abrufen
+    const wallet: string | null = typeof window !== 'undefined'
+      ? sessionStorage.getItem('wallet') || localStorage.getItem('wallet')
+      : null;
 
     while (attempts < RETRY_ATTEMPTS) {
       try {
@@ -39,11 +44,13 @@ export const getSupabase = async () => {
           }
         } else {
           const response = await fetch(`${typeof window !== 'undefined' ? window.location.origin : ''}/.netlify/functions/get-supabase-config`, {
-            headers: getHeaders()
+            headers: getHeaders(wallet)
           });
 
           if (!response.ok) {
-            throw new Error(`Failed to load Supabase config: ${await response.text()}`);
+            const errorText = await response.text().catch(() => 'Unknown error');
+            console.error(`❌ Failed to load Supabase config: ${errorText}`);
+            throw new Error(`Failed to load Supabase config: ${errorText}`);
           }
 
           const config = await response.json();
@@ -52,21 +59,11 @@ export const getSupabase = async () => {
             throw new Error('Invalid Supabase config returned from server');
           }
 
-          if (!config.url.startsWith('http')) {
-            throw new Error('Invalid Supabase URL from server');
-          }
-
           url = config.url;
           anonKey = config.anonKey;
         }
 
-        // Get wallet from localStorage if available
-        let wallet: string | null = null;
-        if (typeof window !== 'undefined') {
-          wallet = localStorage.getItem('wallet');
-        }
-
-        // Create client with global headers
+        // Create client with proper headers
         const client = createClient<Database>(url, anonKey, {
           auth: {
             autoRefreshToken: true,
@@ -76,22 +73,25 @@ export const getSupabase = async () => {
           db: { schema: 'public' },
           realtime: { params: { eventsPerSecond: 10 } },
           global: {
-            headers: getHeaders(wallet || undefined)
+            headers: getHeaders(wallet) // <- Hier wird der Header sauber übergeben
           }
         });
 
-        // Test connection
-        const { error } = await client
+        // Test connection (mit Retry)
+        const { data, error } = await client
           .from('settings')
           .select('value')
           .eq('key', 'main_image')
           .single();
 
-        if (error && error.code !== 'PGRST116') {
-          throw error;
+        if (error) {
+          console.warn(`⚠️ Supabase connection test failed, retrying... (${attempts + 1})`, error.message);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          attempts++;
+          continue;
         }
 
-        console.log('✅ Supabase connection successful');
+        console.log('✅ Supabase connection successful', data);
 
         supabaseInstance = client;
         supabasePromise = null;

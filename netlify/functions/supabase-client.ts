@@ -52,11 +52,21 @@ async function initSupabase() {
             },
             db: {
               schema: 'public'
+            },
+            global: {
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              }
             }
           }
         );
 
-        const { error } = await client
+        // **Wichtig:** Hier wird der Auth-Header explizit gesetzt!
+        client.auth.setAuth(supabaseKey);
+
+        // Test-Query, um die Verbindung zu validieren
+        const { data, error } = await client
           .from('settings')
           .select('value')
           .eq('key', 'main_image')
@@ -67,7 +77,7 @@ async function initSupabase() {
         }
 
         monitoring.logInfo({
-          message: 'Supabase connection established successfully',
+          message: '✅ Supabase connection established successfully',
           context: { action: 'init_supabase', url: supabaseUrl }
         });
 
@@ -80,8 +90,8 @@ async function initSupabase() {
         if (attempts === RETRY_ATTEMPTS) {
           monitoring.logError({
             error: lastError,
-            context: { 
-              action: 'init_supabase', 
+            context: {
+              action: 'init_supabase',
               attempts,
               url: supabaseUrl
             }
@@ -90,6 +100,7 @@ async function initSupabase() {
         }
 
         const delay = RETRY_DELAY * Math.pow(2, attempts - 1);
+        console.warn(`⚠️ Reconnect Attempt ${attempts} failed. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
