@@ -43,25 +43,27 @@ export default defineConfig({
   define: {
     'process.env': process.env
   },
-  server: {
-    host: true,
-    port: 5173,
-    strictPort: true,
-    hmr: false, // Disable HMR to prevent deadlock
-    preview: {
-      port: 5173,
-      strictPort: true
-    }
-  },
-  preview: {
-    port: 5173,
-    strictPort: true
-  },
   build: {
     target: 'esnext',
     sourcemap: true,
     commonjsOptions: {
       transformMixedEsModules: true
+    },
+    rollupOptions: {
+      external: [
+        '@trezor/connect-web',
+        '@trezor/connect-common'
+      ]
     }
+  },
+  server: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+    hmr: false
+  },
+  preview: {
+    port: 5173,
+    strictPort: true
   }
 });
