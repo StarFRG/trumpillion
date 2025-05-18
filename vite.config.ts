@@ -43,27 +43,28 @@ export default defineConfig({
   define: {
     'process.env': process.env
   },
+  server: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+    hmr: false,
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST', 'PUT', DELETE, 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-application-name', 'Wallet'],
+      credentials: true,
+      maxAge: 86400
+    }
+  },
+  preview: {
+    port: 5173,
+    strictPort: true
+  },
   build: {
     target: 'esnext',
     sourcemap: true,
     commonjsOptions: {
       transformMixedEsModules: true
-    },
-    rollupOptions: {
-      external: [
-        '@trezor/connect-web',
-        '@trezor/connect-common'
-      ]
     }
-  },
-  server: {
-    host: true,
-    port: 5173,
-    strictPort: true,
-    hmr: false
-  },
-  preview: {
-    port: 5173,
-    strictPort: true
   }
 });
