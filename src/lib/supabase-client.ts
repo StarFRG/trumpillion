@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../types';
 import { monitoring } from '../services/monitoring';
+import { getHeaders } from './supabase';
 
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
@@ -10,21 +11,7 @@ let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 let supabasePromise: Promise<ReturnType<typeof createClient<Database>>> | null = null;
 let isInitializing = false;
 
-/**
- * Headers frühzeitig definieren (Schritt 1)
- */
-export const getHeaders = (wallet?: string) => ({
-  'x-application-name': 'trumpillion',
-  'Content-Type': 'application/json',
-  'Accept': 'application/json',
-  ...(wallet ? { 'wallet': wallet } : {})
-});
-
-/**
- * Initialisiert den Supabase Client
- * (1) Header setzen → (2) Client initialisieren → (3) Verbindung testen
- */
-export const getSupabase = async () => {
+export const getSupabaseClient = async () => {
   if (supabaseInstance) return supabaseInstance;
   if (supabasePromise) return supabasePromise;
 
@@ -77,9 +64,9 @@ export const getSupabase = async () => {
           anonKey = config.anonKey;
         }
 
-        /**
-         * 2️⃣ Supabase Client initialisieren
-         */
+        const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+        const headers = getHeaders(wallet);
+
         const client = createClient<Database>(url, anonKey, {
           auth: {
             autoRefreshToken: true,
@@ -93,20 +80,17 @@ export const getSupabase = async () => {
             } 
           },
           global: {
-            headers: getHeaders(sessionStorage.getItem('wallet') || localStorage.getItem('wallet'))
+            headers
           }
         });
 
-        /**
-         * 3️⃣ Verbindung testen
-         */
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CONNECTION_TEST_TIMEOUT')), CONNECTION_TIMEOUT);
         });
 
         const testQuery = client
           .from('settings')
-          .select('value')
+          .select('value', { headers })
           .eq('key', 'main_image')
           .single();
 
@@ -127,7 +111,7 @@ export const getSupabase = async () => {
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to init Supabase'),
             context: {
-              source: 'getSupabase',
+              source: 'getSupabaseClient',
               attempts,
               retryExhausted: true
             }
@@ -146,3 +130,5 @@ export const getSupabase = async () => {
     supabasePromise = null;
   }
 };
+
+export default getSupabaseClient;

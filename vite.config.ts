@@ -36,88 +36,32 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/[^/]+\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-cache',
-              networkTimeoutSeconds: 10,
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 24 * 60 * 60
-              }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/images\.unsplash\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'image-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60
-              }
-            }
-          }
-        ]
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
   ],
   define: {
-    global: 'window',
     'process.env': process.env
-  },
-  optimizeDeps: {
-    exclude: ['@trezor/connect-web', '@trezor/connect-common'],
-    esbuildOptions: {
-      define: {
-        global: 'globalThis'
-      }
-    }
-  },
-  resolve: {
-    alias: {
-      crypto: 'crypto-browserify',
-      stream: 'stream-browserify',
-      process: 'process'
-    }
   },
   server: {
     host: true,
     port: 5173,
-    strictPort: false,
-    hmr: {
-      timeout: 60000,
-      overlay: true,
-      protocol: 'ws'
-    },
-    watch: {
-      usePolling: true,
-      interval: 1000
+    strictPort: true,
+    hmr: false, // Disable HMR to prevent deadlock
+    preview: {
+      port: 5173,
+      strictPort: true
     }
   },
   preview: {
-    host: true,
     port: 5173,
-    strictPort: false
+    strictPort: true
   },
   build: {
     target: 'esnext',
     sourcemap: true,
     commonjsOptions: {
-      transformMixedEsModules: true,
-      exclude: ['@trezor/connect-web/**', '@trezor/connect-common/**']
-    },
-    rollupOptions: {
-      external: ['@trezor/connect-web', '@trezor/connect-common'],
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          web3: ['@solana/web3.js', '@solana/wallet-adapter-react']
-        }
-      }
+      transformMixedEsModules: true
     }
   }
 });

@@ -123,6 +123,9 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           throw new Error('SUPABASE_NOT_INITIALIZED');
         }
 
+        const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+        const headers = getHeaders(wallet);
+
         const { error } = await supabase
           .from('pixels')
           .upsert({
@@ -132,7 +135,8 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             owner: pixel.owner,
             nft_url: pixel.nftUrl
           }, {
-            onConflict: 'x,y'
+            onConflict: 'x,y',
+            headers
           });
 
         if (error) throw error;
@@ -167,9 +171,12 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             throw new Error('SUPABASE_NOT_INITIALIZED');
           }
 
+          const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+          const headers = getHeaders(wallet);
+
           const { data, error } = await supabase
             .from('pixels')
-            .select('*')
+            .select('*', { headers })
             .gte('x', startCol)
             .lte('x', endCol)
             .gte('y', startRow)
@@ -242,9 +249,12 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           throw new Error('SUPABASE_NOT_INITIALIZED');
         }
 
+        const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+        const headers = getHeaders(wallet);
+
         const { data, error } = await supabase
           .from('pixels')
-          .select('x, y', { head: false })
+          .select('x, y', { head: false, headers })
           .order('created_at', { ascending: false })
           .limit(1);
 
@@ -265,7 +275,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         // Get all pixels in search area
         const { data: existingPixels, error: searchError } = await supabase
           .from('pixels')
-          .select('x, y', { head: false })
+          .select('x, y', { head: false, headers })
           .in('x', xRange)
           .in('y', yRange);
 
@@ -290,7 +300,7 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
 
           const { data: pixels, error: expandedSearchError } = await supabase
             .from('pixels')
-            .select('x, y', { head: false })
+            .select('x, y', { head: false, headers })
             .in('x', xRange)
             .in('y', yRange);
 
