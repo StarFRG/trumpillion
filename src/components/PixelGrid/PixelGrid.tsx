@@ -18,6 +18,7 @@ const MAX_ZOOM = 12;
 const ZOOM_LEVELS = [1, 3, 6, MAX_ZOOM];
 const MIN_OPACITY = 0.5;
 const MAX_OPACITY = 1.0;
+const DEFAULT_IMAGE = "/mosaic.jpg";
 
 const PixelGrid: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,27 +78,26 @@ const PixelGrid: React.FC = () => {
 
   useEffect(() => {
     const loadMainImage = async () => {
-      const defaultImage = "/mosaic.jpg";
-      
       try {
         const supabase = await getSupabase();
         const { data, error } = await supabase
           .from("settings")
           .select("value")
           .eq("key", "main_image")
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
 
-        const imageUrl = data?.value?.url || defaultImage;
+        const imageUrl = data?.value?.url || DEFAULT_IMAGE;
         
         // Only load if URL actually changes
         if (imageUrl !== mainImageUrl) {
           await retryLoadImage(imageUrl);
         }
       } catch (error) {
-        if (mainImageUrl !== defaultImage) {
-          await retryLoadImage(defaultImage);
+        console.error('Error loading main image:', error);
+        if (mainImageUrl !== DEFAULT_IMAGE) {
+          await retryLoadImage(DEFAULT_IMAGE);
         }
       }
     };
@@ -493,13 +493,13 @@ const PixelGrid: React.FC = () => {
       </div>
       
       {modalOpen && selectedPixel && (
-      <PixelModal 
-  isOpen={modalOpen}
-  onClose={() => setModalOpen(false)}
-  pixel={selectedPixel ? { x: selectedPixel.x, y: selectedPixel.y } : null}
-  setSelectedPixel={(pixel) => setSelectedPixel(pixel ? { ...pixel, imageUrl: null } : null)}
-  fromButton={false}
-/>
+        <PixelModal 
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          pixel={selectedPixel ? { x: selectedPixel.x, y: selectedPixel.y } : null}
+          setSelectedPixel={(pixel) => setSelectedPixel(pixel ? { ...pixel, imageUrl: null } : null)}
+          fromButton={false}
+        />
       )}
 
       {shareModalOpen && selectedPixel && (

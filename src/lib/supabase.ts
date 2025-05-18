@@ -7,12 +7,8 @@ const RETRY_DELAY = 2000;
 const CONNECTION_TIMEOUT = 60000;
 
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
-let supabasePromise: Promise<ReturnType<typeof createClient<Database>>> | null = null;
 let isInitializing = false;
 
-/**
- * Headers frühzeitig definieren (Schritt 1)
- */
 export const getHeaders = (wallet?: string) => ({
   'x-application-name': 'trumpillion',
   'Content-Type': 'application/json',
@@ -20,24 +16,19 @@ export const getHeaders = (wallet?: string) => ({
   ...(wallet ? { 'wallet': wallet } : {})
 });
 
-/**
- * Initialisiert den Supabase Client
- * (1) Header setzen → (2) Client initialisieren → (3) Verbindung testen
- */
 export const getSupabase = async () => {
   if (supabaseInstance) return supabaseInstance;
-  if (supabasePromise) return supabasePromise;
 
   if (isInitializing) {
     const waitTimeout = CONNECTION_TIMEOUT;
     const start = Date.now();
-    while (isInitializing && (Date.now() - start < waitTimeout)) {
+    while (!supabaseInstance && (Date.now() - start < waitTimeout)) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    if (isInitializing) {
+    if (!supabaseInstance) {
       throw new Error('SUPABASE_INIT_TIMEOUT');
     }
-    return supabaseInstance!;
+    return supabaseInstance;
   }
 
   isInitializing = true;
@@ -77,38 +68,24 @@ export const getSupabase = async () => {
           anonKey = config.anonKey;
         }
 
-        /**
-         * 2️⃣ Supabase Client initialisieren
-         */
         const client = createClient<Database>(url, anonKey, {
           auth: {
-            autoRefreshToken: true,
-            persistSession: true,
-            detectSessionInUrl: true
+            autoRefreshToken: false,
+            persistSession: false,
+            detectSessionInUrl: false
           },
-          db: { schema: 'public' },
-          realtime: { 
-            params: { 
-              eventsPerSecond: 10 
-            } 
-          },
-          global: {
-            headers: getHeaders(sessionStorage.getItem('wallet') || localStorage.getItem('wallet'))
-          }
+          db: { schema: 'public' }
         });
 
-        /**
-         * 3️⃣ Verbindung testen
-         */
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CONNECTION_TEST_TIMEOUT')), CONNECTION_TIMEOUT);
         });
 
+        // Test connection by checking if we can query the database at all
         const testQuery = client
           .from('settings')
-          .select('value')
-          .eq('key', 'main_image')
-          .single();
+          .select('*')
+          .limit(1);
 
         const result = await Promise.race([testQuery, timeoutPromise]);
 
@@ -116,6 +93,7 @@ export const getSupabase = async () => {
           throw result;
         }
 
+        // Connection test successful even if no data was found
         console.log('✅ Supabase connection successful');
         supabaseInstance = client;
         return client;
@@ -143,6 +121,22 @@ export const getSupabase = async () => {
     throw new Error('SUPABASE_INIT_FAILED');
   } finally {
     isInitializing = false;
-    supabasePromise = null;
   }
+};
+
+export const getSupabaseWithHeaders = async () => {
+  const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+  if (!wallet) {
+    throw new Error('WALLET_NOT_FOUND');
+  }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    throw new Error('SUPABASE_NOT_INITIALIZED');
+  }
+
+  return {
+    supabase,
+    headers: getHeaders(wallet)
+  };
 };

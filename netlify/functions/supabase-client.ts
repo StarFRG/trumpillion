@@ -53,13 +53,6 @@ async function initSupabase() {
             },
             db: {
               schema: 'public'
-            },
-            global: {
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'x-application-name': 'trumpillion'
-              }
             }
           }
         );

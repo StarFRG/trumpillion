@@ -1,6 +1,6 @@
 export interface MintNftParams {
   wallet: string;
-  reference: string; // New field for payment reference
+  reference: string;
   name: string;
   description: string;
   imageUrl: string;
@@ -13,7 +13,9 @@ export async function mintNftFromServer(data: MintNftParams): Promise<string> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'x-application-name': 'trumpillion',
+      'wallet': data.wallet
     },
     body: JSON.stringify(data)
   });
@@ -22,15 +24,15 @@ export async function mintNftFromServer(data: MintNftParams): Promise<string> {
   try {
     result = await response.json();
   } catch {
-    throw new Error('Ungültige Antwort vom Server');
+    throw new Error('INVALID_RESPONSE');
   }
 
   if (!response.ok) {
-    throw new Error(result?.error || 'NFT Minting fehlgeschlagen');
+    throw new Error(result?.error || 'MINT_FAILED');
   }
 
   if (!result.mint || typeof result.mint !== 'string') {
-    throw new Error('Mint-Adresse fehlt in Serverantwort');
+    throw new Error('INVALID_MINT_ADDRESS');
   }
 
   return result.mint;

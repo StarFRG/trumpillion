@@ -43,6 +43,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       }
 
       const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+      if (!wallet) {
+        throw new Error('WALLET_NOT_FOUND');
+      }
+
       const headers = getHeaders(wallet);
 
       const { data: existingPixel, error } = await supabase
@@ -73,8 +77,6 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
   const handleUpload = useCallback(async (file: File) => {
     if (!isWalletConnected(wallet)) throw new Error('WALLET_NOT_CONNECTED');
     if (!selectedCoordinates) throw new Error('INVALID_COORDINATES');
-
-    let uploadedUrl: string | null = null;
 
     try {
       setLoading(true);
@@ -107,6 +109,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       }
 
       const walletAddress = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+      if (!walletAddress) {
+        throw new Error('WALLET_NOT_FOUND');
+      }
+
       const headers = getHeaders(walletAddress);
 
       const { error: storageError } = await supabase.storage
@@ -123,7 +129,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
-      uploadedUrl = data.publicUrl;
+      const uploadedUrl = data.publicUrl;
       setUploadedImageUrl(uploadedUrl);
 
       setSelectedPixel({
@@ -184,7 +190,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         URL.revokeObjectURL(previewUrl);
       }
       setPreviewUrl(null);
-      setError(error instanceof Error ? error.message : 'Ungültige Datei');
+      setError(error instanceof Error ? error.message : 'Invalid file');
       return false;
     }
   }, [previewUrl]);
@@ -212,12 +218,22 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
         try {
           const supabase = await getSupabase();
           if (!supabase) {
-            throw new Error('Supabase Client konnte nicht initialisiert werden');
+            throw new Error('SUPABASE_NOT_INITIALIZED');
           }
-          await supabase.storage.from('pixel-images').remove([fileName]);
+
+          const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+          if (!wallet) {
+            throw new Error('WALLET_NOT_FOUND');
+          }
+
+          const headers = getHeaders(wallet);
+
+          await supabase.storage
+            .from('pixel-images')
+            .remove([fileName], { headers });
         } catch (error) {
           monitoring.logError({
-            error: error instanceof Error ? error : new Error('Fehler beim Löschen des hochgeladenen Bildes'),
+            error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
             context: { 
               action: 'cancel_upload', 
               fileName,
@@ -273,6 +289,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       console.log('Payment successful:', txId);
 
       const walletAddress = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
+      if (!walletAddress) {
+        throw new Error('WALLET_NOT_FOUND');
+      }
+
       const headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -450,6 +470,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                 placeholder="Make it memorable - use your name or a catchy title"
+                maxLength={100}
               />
             </div>
 
@@ -462,6 +483,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-red-500 h-24 resize-none"
                 placeholder="Share why this moment matters to you. What does Trump mean to you? Make it personal!"
+                maxLength={500}
               />
             </div>
 
@@ -533,9 +555,9 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
             <button
               onClick={handleMint}
-              disabled={!uploadedImageUrl || loading || processingPayment || !title || !description || !selectedCoordinates}
+              disabled={loading || !uploadedImageUrl || !title || !description || !selectedCoordinates}
               className={`w-full py-3 px-6 rounded-lg font-semibold flex items-center justify-center gap-2
-                ${uploadedImageUrl && !loading && !processingPayment && title && description && selectedCoordinates
+                ${uploadedImageUrl && !loading && title && description && selectedCoordinates
                   ? 'bg-red-500 hover:bg-red-600 text-white'
                   : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                 }`}

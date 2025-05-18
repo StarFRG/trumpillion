@@ -1,10 +1,9 @@
 import { create } from 'zustand';
 import { PixelData } from '../types';
-import { getSupabase, getHeaders } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 import { validatePixel, validateCoordinates } from '../utils/validation';
 import { monitoring } from '../services/monitoring';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { getErrorMessage } from '../utils/errorMessages';
 
 interface PixelGridState {
   pixels: PixelData[][];
@@ -22,8 +21,6 @@ interface PixelGridState {
 }
 
 const GRID_SIZE = 1000;
-const LOAD_RETRY_ATTEMPTS = 3;
-const LOAD_RETRY_DELAY = 2000;
 
 export const usePixelStore = create<PixelGridState>()((set, get) => {
   return {
@@ -57,9 +54,6 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         }
 
         const supabase = await getSupabase();
-        if (!supabase) {
-          throw new Error('SUPABASE_NOT_INITIALIZED');
-        }
 
         const subscription = supabase
           .channel('pixels')
@@ -119,12 +113,6 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         }
 
         const supabase = await getSupabase();
-        if (!supabase) {
-          throw new Error('SUPABASE_NOT_INITIALIZED');
-        }
-
-        const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
-        const headers = getHeaders(wallet);
 
         const { error } = await supabase
           .from('pixels')
@@ -134,9 +122,6 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
             image_url: pixel.imageUrl,
             owner: pixel.owner,
             nft_url: pixel.nftUrl
-          }, {
-            onConflict: 'x,y',
-            headers
           });
 
         if (error) throw error;
@@ -159,83 +144,62 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         throw new Error('INVALID_COORDINATES');
       }
 
-      let attempts = 0;
-      let lastError: Error | null = null;
+      try {
+        set({ loading: true, error: null });
 
-      while (attempts < LOAD_RETRY_ATTEMPTS) {
-        try {
-          set({ loading: true, error: null });
+        const supabase = await getSupabase();
 
-          const supabase = await getSupabase();
-          if (!supabase) {
-            throw new Error('SUPABASE_NOT_INITIALIZED');
-          }
+        const { data, error } = await supabase
+          .from('pixels')
+          .select('*')
+          .gte('x', startCol)
+          .lte('x', endCol)
+          .gte('y', startRow)
+          .lte('y', endRow);
 
-          const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
-          const headers = getHeaders(wallet);
+        if (error) throw error;
 
-          const { data, error } = await supabase
-            .from('pixels')
-            .select('*', { headers })
-            .gte('x', startCol)
-            .lte('x', endCol)
-            .gte('y', startRow)
-            .lte('y', endRow);
+        if (!Array.isArray(data)) {
+          throw new Error('INVALID_RESPONSE_FORMAT');
+        }
 
-          if (error) throw error;
-
-          if (!Array.isArray(data)) {
-            throw new Error('INVALID_RESPONSE_FORMAT');
-          }
-
-          const pixels = get().pixels;
-          const updatedPixels = pixels.map(row => [...row]);
-          
-          // Reset pixels in range
-          for (let y = startRow; y <= endRow; y++) {
-            for (let x = startCol; x <= endCol; x++) {
-              if (updatedPixels[y]) {
-                updatedPixels[y][x] = null;
-              }
+        const pixels = get().pixels;
+        const updatedPixels = pixels.map(row => [...row]);
+        
+        // Reset pixels in range
+        for (let y = startRow; y <= endRow; y++) {
+          for (let x = startCol; x <= endCol; x++) {
+            if (updatedPixels[y]) {
+              updatedPixels[y][x] = null;
             }
-          }
-
-          // Update with validated pixels
-          data.forEach((pixel: PixelData) => {
-            if (validatePixel(pixel)) {
-              updatedPixels[pixel.y][pixel.x] = pixel;
-            }
-          });
-
-          set({ pixels: updatedPixels, loading: false, error: null });
-          return;
-        } catch (error) {
-          attempts++;
-          lastError = error instanceof Error ? error : new Error('Failed to load pixels');
-          
-          if (attempts < LOAD_RETRY_ATTEMPTS) {
-            console.warn(`Pixel load attempt ${attempts} failed, retrying...`);
-            await new Promise(resolve => setTimeout(resolve, LOAD_RETRY_DELAY));
           }
         }
+
+        // Update with validated pixels
+        data.forEach((pixel: PixelData) => {
+          if (validatePixel(pixel)) {
+            updatedPixels[pixel.y][pixel.x] = pixel;
+          }
+        });
+
+        set({ pixels: updatedPixels, loading: false, error: null });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load pixels';
+        monitoring.logError({
+          error: error instanceof Error ? error : new Error(errorMessage),
+          context: { 
+            action: 'load_pixels',
+            startRow,
+            startCol,
+            endRow,
+            endCol
+          }
+        });
+        set({ error: errorMessage, loading: false });
       }
-
-      const errorMessage = getErrorMessage(lastError || 'Failed to load pixels after multiple attempts');
-      monitoring.logError({
-        error: lastError || new Error(errorMessage),
-        context: { 
-          action: 'load_pixels',
-          startRow,
-          startCol,
-          endRow,
-          endCol,
-          attempts
-        }
-      });
-      set({ error: errorMessage, loading: false });
     },
 
-    getPixelData: (x, y) => {
+    getPixelData: (x: number, y: number) => {
       if (!validateCoordinates(x, y)) return null;
       
       const pixels = get().pixels;
@@ -245,22 +209,15 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
     findAvailablePixel: async () => {
       try {
         const supabase = await getSupabase();
-        if (!supabase) {
-          throw new Error('SUPABASE_NOT_INITIALIZED');
-        }
-
-        const wallet = sessionStorage.getItem('wallet') || localStorage.getItem('wallet');
-        const headers = getHeaders(wallet);
 
         const { data, error } = await supabase
           .from('pixels')
-          .select('x, y', { head: false, headers })
+          .select('x, y')
           .order('created_at', { ascending: false })
           .limit(1);
 
         if (error) throw error;
 
-        // Start from center if no pixels exist
         if (!data?.length) {
           return { x: Math.floor(GRID_SIZE / 2), y: Math.floor(GRID_SIZE / 2) };
         }
@@ -268,23 +225,19 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
         const lastPixel = data[0];
         const searchRadius = 10;
 
-        // Generate coordinate ranges for initial search area
         const xRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.x - searchRadius + i);
         const yRange = Array.from({ length: searchRadius * 2 + 1 }, (_, i) => lastPixel.y - searchRadius + i);
 
-        // Get all pixels in search area
         const { data: existingPixels, error: searchError } = await supabase
           .from('pixels')
-          .select('x, y', { head: false, headers })
+          .select('x, y')
           .in('x', xRange)
           .in('y', yRange);
 
         if (searchError) throw searchError;
 
-        // Create set of taken coordinates
         const taken = new Set(existingPixels?.map(p => `${p.x},${p.y}`));
 
-        // Find first available coordinate in initial search area
         for (const y of yRange) {
           for (const x of xRange) {
             if (validateCoordinates(x, y) && !taken.has(`${x},${y}`)) {
@@ -293,14 +246,13 @@ export const usePixelStore = create<PixelGridState>()((set, get) => {
           }
         }
 
-        // If no pixel found in initial area, expand search
         for (let radius = searchRadius + 1; radius < GRID_SIZE / 2; radius++) {
           const xRange = Array.from({ length: radius * 2 + 1 }, (_, i) => lastPixel.x - radius + i);
           const yRange = Array.from({ length: radius * 2 + 1 }, (_, i) => lastPixel.y - radius + i);
 
           const { data: pixels, error: expandedSearchError } = await supabase
             .from('pixels')
-            .select('x, y', { head: false, headers })
+            .select('x, y')
             .in('x', xRange)
             .in('y', yRange);
 

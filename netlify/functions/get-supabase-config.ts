@@ -4,7 +4,7 @@ const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-application-name, wallet'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-application-name, wallet, Wallet'
 };
 
 export const handler: Handler = async (event) => {
@@ -52,7 +52,7 @@ export const handler: Handler = async (event) => {
   }
 
   // Validate wallet header if present
-  const walletHeader = event.headers['wallet'];
+  const walletHeader = event.headers['wallet'] || event.headers['Wallet'];
   if (walletHeader && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletHeader)) {
     return {
       statusCode: 403,

@@ -26,7 +26,6 @@ interface MintRequest {
   y: number;
 }
 
-// Create Supabase client with service role key
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -34,30 +33,9 @@ const supabase = createClient(
     auth: {
       autoRefreshToken: false,
       persistSession: false
-    },
-    global: {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'x-application-name': 'trumpillion'
-      }
     }
   }
 );
-
-// Retry helper function
-const retry = async <T>(fn: () => Promise<T>, retries = 3, delayMs = 1000): Promise<T> => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      console.warn(`⚠️ Attempt ${attempt} failed. Retrying in ${delayMs}ms...`);
-      if (attempt === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
-  }
-  throw new Error('Max retries exceeded');
-};
 
 // Initialize Umi
 const umi = createUmi(process.env.SOLANA_RPC_URL)
@@ -118,17 +96,22 @@ export const handler: Handler = async (event) => {
     // Validate wallet address
     const walletPublicKey = publicKey(wallet);
 
-    // Set headers for RLS
-    const headers = {
-      'wallet': wallet,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    };
+    // Validate wallet header
+    const walletHeader = event.headers['wallet'] || event.headers['Wallet'];
+    if (!walletHeader || walletHeader !== wallet) {
+      throw new Error('INVALID_WALLET_HEADER');
+    }
 
-    // Perform atomic lock check
+    // Perform atomic lock check with wallet header
     const { data, error } = await supabase.rpc('lock_and_check_pixel', 
       { p_x: x, p_y: y },
-      { headers }
+      { 
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'wallet': wallet
+        }
+      }
     );
 
     if (error || !data) {
@@ -185,8 +168,8 @@ export const handler: Handler = async (event) => {
       }
     };
 
-    // Upload metadata with retry and logging
-    const { uri } = await retry(() => umi.uploader.uploadJson(metadata));
+    // Upload metadata
+    const { uri } = await umi.uploader.uploadJson(metadata);
 
     if (!uri) {
       throw new Error('UPLOAD_FAILED');
@@ -195,18 +178,16 @@ export const handler: Handler = async (event) => {
     // Generate mint keypair
     const mint = umi.eddsa.generateKeypair();
 
-    // Create NFT with retry and proper error handling
-    await retry(() =>
-      createV1(umi, {
-        mint,
-        name,
-        symbol: 'TRUMPILLION',
-        uri,
-        sellerFeeBasisPoints: 500,
-        tokenStandard: TokenStandard.NonFungible,
-        creators: [{ address: walletPublicKey, share: 100, verified: false }]
-      }).sendAndConfirm(umi)
-    );
+    // Create NFT
+    await createV1(umi, {
+      mint,
+      name,
+      symbol: 'TRUMPILLION',
+      uri,
+      sellerFeeBasisPoints: 500,
+      tokenStandard: TokenStandard.NonFungible,
+      creators: [{ address: walletPublicKey, share: 100, verified: false }]
+    }).sendAndConfirm(umi);
 
     return {
       statusCode: 200,

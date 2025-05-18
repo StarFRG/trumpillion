@@ -88,11 +88,11 @@ export const getSupabaseClient = async () => {
           setTimeout(() => reject(new Error('CONNECTION_TEST_TIMEOUT')), CONNECTION_TIMEOUT);
         });
 
+        // Test connection by checking if we can query the database at all
         const testQuery = client
           .from('settings')
-          .select('value', { headers })
-          .eq('key', 'main_image')
-          .single();
+          .select('*')
+          .limit(1);
 
         const result = await Promise.race([testQuery, timeoutPromise]);
 

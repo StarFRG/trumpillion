@@ -5,7 +5,7 @@ export const getRpcEndpoint = async (): Promise<string> => {
     if (import.meta.env.DEV) {
       const local = import.meta.env.VITE_SOLANA_RPC_URL;
       if (!local?.startsWith('http')) {
-        throw new Error('Lokaler RPC-Endpoint ist ungültig oder fehlt');
+        throw new Error('Local RPC endpoint is invalid or missing');
       }
       return local;
     }
@@ -19,20 +19,20 @@ export const getRpcEndpoint = async (): Promise<string> => {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`RPC-Endpoint konnte nicht geladen werden: ${text}`);
+      throw new Error(`Failed to load RPC endpoint: ${text}`);
     }
 
     const config = await response.json();
     const { SOLANA_RPC_URL } = config;
 
     if (!SOLANA_RPC_URL?.startsWith('http')) {
-      throw new Error('RPC Endpoint fehlt oder ist ungültig');
+      throw new Error('RPC endpoint is missing or invalid');
     }
 
     return SOLANA_RPC_URL;
   } catch (error) {
     monitoring.logError({
-      error: error instanceof Error ? error : new Error('Unbekannter Fehler bei getRpcEndpoint'),
+      error: error instanceof Error ? error : new Error('Unknown error in getRpcEndpoint'),
       context: { source: 'getRpcEndpoint' }
     });
     throw error;
@@ -41,7 +41,7 @@ export const getRpcEndpoint = async (): Promise<string> => {
 
 export const getWsEndpoint = (endpoint: string): string => {
   if (!endpoint?.startsWith('http')) {
-    throw new Error('Fehlender oder ungültiger Endpoint');
+    throw new Error('Missing or invalid endpoint');
   }
   return endpoint.replace('https://', 'wss://');
 };
