@@ -8,13 +8,12 @@ import { irysUploader } from '@metaplex-foundation/umi-uploader-irys';
 import { TokenStandard, createV1 } from '@metaplex-foundation/mpl-token-metadata';
 import { getErrorMessage } from '../../src/utils/errorMessages';
 import { monitoring } from '../../src/services/monitoring';
-import { apiFetch } from '../../src/lib/apiService';
 
 const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-application-name, wallet'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-application-name, Wallet'
 };
 
 interface MintRequest {
@@ -37,7 +36,6 @@ const supabase = createClient(
   }
 );
 
-// Initialize Umi
 const umi = createUmi(process.env.SOLANA_RPC_URL)
   .use(web3JsRpc({ rpcEndpoint: process.env.SOLANA_RPC_URL }))
   .use(mplTokenMetadata())
@@ -73,7 +71,6 @@ export const handler: Handler = async (event) => {
     const body: MintRequest = JSON.parse(event.body);
     const { wallet, name, description, imageUrl, x, y } = body;
 
-    // Field validation
     if (!name || !description || !imageUrl) {
       return {
         statusCode: 400,
@@ -82,7 +79,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Validate URL format
     try {
       new URL(imageUrl);
     } catch {
@@ -93,13 +89,16 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Validate wallet address
     const walletPublicKey = publicKey(wallet);
 
     // Validate wallet header
-    const walletHeader = event.headers['wallet'] || event.headers['Wallet'];
+    const walletHeader = event.headers['Wallet'];
     if (!walletHeader || walletHeader !== wallet) {
-      throw new Error('INVALID_WALLET_HEADER');
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: getErrorMessage('INVALID_WALLET_HEADER') })
+      };
     }
 
     // Perform atomic lock check with wallet header
@@ -109,7 +108,7 @@ export const handler: Handler = async (event) => {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'wallet': wallet
+          'Wallet': wallet
         }
       }
     );
@@ -126,32 +125,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Fetch image with extended timeout
-    const imageResponse = await apiFetch(imageUrl, {
-      method: 'GET',
-      timeout: 60000,
-      headers: {
-        'Accept': 'image/*',
-        'User-Agent': 'Trumpillion/1.0'
-      }
-    });
-
-    if (!imageResponse.ok) {
-      throw new Error('UPLOAD_FAILED');
-    }
-
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const mimeType = imageResponse.headers.get('content-type');
-
-    if (!['image/png', 'image/jpeg', 'image/gif'].includes(mimeType || '')) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: getErrorMessage('INVALID_IMAGE_FORMAT') })
-      };
-    }
-
-    // Prepare metadata
     const metadata = {
       name,
       symbol: 'TRUMPILLION',
@@ -162,23 +135,20 @@ export const handler: Handler = async (event) => {
         { trait_type: 'Y Coordinate', value: y.toString() }
       ],
       properties: {
-        files: [{ uri: imageUrl, type: mimeType }],
+        files: [{ uri: imageUrl, type: 'image/jpeg' }],
         category: 'image',
         creators: [{ address: walletPublicKey.toString(), share: 100 }]
       }
     };
 
-    // Upload metadata
     const { uri } = await umi.uploader.uploadJson(metadata);
 
     if (!uri) {
       throw new Error('UPLOAD_FAILED');
     }
 
-    // Generate mint keypair
     const mint = umi.eddsa.generateKeypair();
 
-    // Create NFT
     await createV1(umi, {
       mint,
       name,

@@ -10,9 +10,9 @@ let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
 let isInitializing = false;
 
 export const getHeaders = (wallet?: string) => ({
-  'x-application-name': 'trumpillion',
   'Content-Type': 'application/json',
   'Accept': 'application/json',
+  'x-application-name': 'trumpillion',
   ...(wallet ? { 'Wallet': wallet } : {})
 });
 

@@ -1,106 +1,78 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { monitoring } from '../services/monitoring';
-import { isWalletConnected } from '../utils/walletUtils';
-
-export const RECONNECT_ATTEMPTS = 3;
-const RECONNECT_DELAY = 2000;
+import { isWalletConnected, getWalletAddress } from '../utils/walletUtils';
 
 export const useWalletConnection = () => {
   const wallet = useWallet();
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
-  const [isReconnecting, setIsReconnecting] = useState(false);
-  const isWalletReady = wallet?.connected && wallet?.publicKey;
 
-  // Hinweis wenn Wallet installiert aber nicht bereit
+  // Store wallet address immediately when connected
   useEffect(() => {
-    if (wallet.wallet && wallet.wallet.readyState !== 'Installed') {
-      setConnectionError('Wallet ist nicht bereit – bitte Extension öffnen oder neu installieren.');
+    if (isWalletConnected(wallet)) {
+      try {
+        const address = getWalletAddress(wallet);
+        localStorage.setItem('wallet', address);
+        sessionStorage.setItem('wallet', address);
+      } catch (error) {
+        console.error('Failed to store wallet address:', error);
+      }
     }
-  }, [wallet?.wallet?.readyState]);
+  }, [wallet?.connected, wallet?.publicKey]);
 
-  const connect = useCallback(async (walletType?: string) => {
+  const connect = useCallback(async () => {
     if (isConnecting || wallet?.connected) return;
 
     try {
       setIsConnecting(true);
       setConnectionError(null);
 
-      // Grundlegende Wallet-Adapter Prüfung
-      if (!wallet || !wallet.select || !wallet.connect) {
-        throw new Error('Wallet-Adapter nicht initialisiert');
-      }
-
-      // Wenn noch kein Wallet ausgewählt wurde, Modal öffnen
-      if (!wallet.wallet) {
-        const selected = await wallet.select(walletType);
-        if (!selected) return;
-      }
-
-      // Prüfe readyState
-      if (wallet.wallet?.readyState !== 'Installed') {
-        throw new Error('Wallet ist nicht bereit (readyState !== Installed)');
+      if (!wallet?.connect) {
+        throw new Error('Wallet nicht initialisiert');
       }
 
       await wallet.connect();
 
       if (!wallet.publicKey) {
-        throw new Error('Wallet verbunden, aber publicKey ist leer');
+        throw new Error('Wallet verbunden, aber keine Public Key vorhanden');
       }
 
-      // Zusätzlicher Check für signTransaction-Fähigkeit
-      if (!wallet.adapter?.signTransaction) {
-        throw new Error('Der verwendete Wallet-Adapter unterstützt keine Transaktionen. Bitte Phantom oder Solflare Desktop verwenden.');
-      }
+      const address = getWalletAddress(wallet);
+      localStorage.setItem('wallet', address);
+      sessionStorage.setItem('wallet', address);
 
-      setReconnectAttempts(0);
-      setIsReconnecting(false);
-      setConnectionError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Wallet-Verbindung fehlgeschlagen';
-      console.error('Wallet-Verbindungsfehler:', message);
+      console.error('Wallet connection error:', message);
       setConnectionError(message);
 
       monitoring.logError({
         error: error instanceof Error ? error : new Error(message),
-        context: {
-          action: 'connect_wallet',
-          attempt: reconnectAttempts + 1,
-          walletType,
-          readyState: wallet.wallet?.readyState,
-          hasAdapter: !!wallet.adapter,
-          hasSignTransaction: !!wallet.adapter?.signTransaction
-        }
+        context: { action: 'connect_wallet' }
       });
 
-      if (reconnectAttempts < RECONNECT_ATTEMPTS) {
-        setIsReconnecting(true);
-        setTimeout(() => {
-          setReconnectAttempts(prev => prev + 1);
-          connect(walletType);
-        }, RECONNECT_DELAY * (reconnectAttempts + 1));
-      } else {
-        setIsReconnecting(false);
-      }
+      // Clear stored wallet on error
+      localStorage.removeItem('wallet');
+      sessionStorage.removeItem('wallet');
     } finally {
       setIsConnecting(false);
     }
-  }, [wallet, isConnecting, reconnectAttempts]);
+  }, [wallet, isConnecting]);
 
   const disconnect = useCallback(async () => {
     try {
-      if (!wallet) {
-        throw new Error('Wallet-Instanz nicht verfügbar');
+      if (!wallet?.disconnect) {
+        throw new Error('Wallet nicht initialisiert');
       }
 
       await wallet.disconnect();
-      setReconnectAttempts(0);
-      setIsReconnecting(false);
-      setConnectionError(null);
+      
+      localStorage.removeItem('wallet');
+      sessionStorage.removeItem('wallet');
+      
     } catch (error) {
-      console.error('Fehler beim Trennen der Wallet:', error);
+      console.error('Wallet disconnect error:', error);
       monitoring.logError({
         error: error instanceof Error ? error : new Error('Wallet-Trennung fehlgeschlagen'),
         context: { action: 'disconnect_wallet' }
@@ -108,14 +80,19 @@ export const useWalletConnection = () => {
     }
   }, [wallet]);
 
+  // Clear stored wallet if disconnected
+  useEffect(() => {
+    if (!isWalletConnected(wallet)) {
+      localStorage.removeItem('wallet');
+      sessionStorage.removeItem('wallet');
+    }
+  }, [wallet?.connected]);
+
   return {
     connect,
     disconnect,
     isConnecting,
     connectionError,
-    reconnectAttempts,
-    isReconnecting,
-    isWalletReady,
     wallet
   };
 };
