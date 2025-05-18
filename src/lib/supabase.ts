@@ -13,7 +13,7 @@ export const getHeaders = (wallet?: string) => ({
   'x-application-name': 'trumpillion',
   'Content-Type': 'application/json',
   'Accept': 'application/json',
-  ...(wallet ? { 'wallet': wallet } : {})
+  ...(wallet ? { 'Wallet': wallet } : {})
 });
 
 export const getSupabase = async () => {
@@ -81,7 +81,6 @@ export const getSupabase = async () => {
           setTimeout(() => reject(new Error('CONNECTION_TEST_TIMEOUT')), CONNECTION_TIMEOUT);
         });
 
-        // Test connection by checking if we can query the database at all
         const testQuery = client
           .from('settings')
           .select('*')
@@ -93,7 +92,6 @@ export const getSupabase = async () => {
           throw result;
         }
 
-        // Connection test successful even if no data was found
         console.log('✅ Supabase connection successful');
         supabaseInstance = client;
         return client;
