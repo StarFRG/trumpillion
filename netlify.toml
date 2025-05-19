@@ -11,7 +11,15 @@
     "@metaplex-foundation/umi-bundle-defaults",
     "@metaplex-foundation/umi-rpc-web3js",
     "@metaplex-foundation/umi-uploader-irys",
-    "@metaplex-foundation/mpl-token-metadata"
+    "@metaplex-foundation/mpl-token-metadata",
+    "@trezor/connect-web",
+    "@trezor/connect-common",
+    "@trezor/env-utils",
+    "@trezor/connect",
+    "@trezor/utils",
+    "@trezor/protocol",
+    "@trezor/transport",
+    "@trezor/blockchain-link"
   ]
 
 [[headers]]
