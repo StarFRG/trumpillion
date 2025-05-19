@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -15,6 +15,11 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 60000,
       cacheTime: 300000,
+      retry: 3,
+      onError: (error) => {
+        console.error('Query error:', error);
+        toast.error('Failed to fetch data. Please try again.');
+      },
     },
   },
 });
@@ -24,6 +29,16 @@ const App: React.FC = () => {
   const [selectedPixel, setSelectedPixel] = useState<{ x: number; y: number } | null>(null);
   const [fromButton, setFromButton] = useState(false);
   const { connected } = useWallet();
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    try {
+      setIsInitialized(true);
+    } catch (error) {
+      console.error('Error during app initialization:', error);
+      toast.error('Failed to initialize application');
+    }
+  }, []);
 
   const openModal = (pixel: { x: number; y: number; data?: any }) => {
     try {
@@ -31,8 +46,8 @@ const App: React.FC = () => {
       setFromButton(false);
       setShowModal(true);
     } catch (error) {
-      console.error("Fehler beim Öffnen des Modals:", error);
-      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
+      console.error("Error opening modal:", error);
+      toast.error(`Could not open modal: ${(error as Error).message}`);
     }
   };
 
@@ -41,8 +56,8 @@ const App: React.FC = () => {
       setFromButton(true);
       setShowModal(true);
     } catch (error) {
-      console.error("Fehler beim Öffnen des Button-Modals:", error);
-      toast.error(`Modal konnte nicht geöffnet werden: ${(error as Error).message}`);
+      console.error("Error opening button modal:", error);
+      toast.error(`Could not open modal: ${(error as Error).message}`);
     }
   };
 
@@ -52,8 +67,8 @@ const App: React.FC = () => {
       setSelectedPixel(null);
       setFromButton(false);
     } catch (error) {
-      console.error("Fehler beim Schließen des Modals:", error);
-      toast.error(`Modal konnte nicht geschlossen werden: ${(error as Error).message}`);
+      console.error("Error closing modal:", error);
+      toast.error(`Could not close modal: ${(error as Error).message}`);
     }
   };
 
@@ -74,6 +89,12 @@ const App: React.FC = () => {
       description: "Buy, sell, and trade your piece of history"
     }
   ];
+
+  if (!isInitialized) {
+    return <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white flex items-center justify-center">
+      <p>Initializing application...</p>
+    </div>;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
