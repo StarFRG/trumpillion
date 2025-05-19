@@ -56,7 +56,12 @@ export default defineConfig({
   ],
   define: {
     'process.env': process.env,
-    'global': {}
+    'global': 'window'
+  },
+  resolve: {
+    alias: {
+      'cross-fetch': 'cross-fetch/dist/cross-fetch.js'
+    }
   },
   server: {
     host: true,
