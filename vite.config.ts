@@ -9,8 +9,28 @@ export default defineConfig({
       jsxRuntime: 'automatic'
     }),
     VitePWA({
-      registerType: 'prompt',
-      includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
+      registerType: 'autoUpdate',
+      workbox: {
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        navigateFallback: 'index.html',
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/api\.mainnet-beta\.solana\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'solana-api-cache',
+              networkTimeoutSeconds: 10,
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 // 1 hour
+              }
+            }
+          }
+        ]
+      },
       manifest: {
         name: 'Trumpillion',
         short_name: 'Trumpillion',
@@ -31,17 +51,12 @@ export default defineConfig({
             purpose: 'any maskable'
           }
         ]
-      },
-      workbox: {
-        cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
   ],
   define: {
-    'process.env': process.env
+    'process.env': process.env,
+    'global': {}
   },
   server: {
     host: true,
@@ -73,5 +88,8 @@ export default defineConfig({
         '@trezor/env-utils'
       ]
     }
+  },
+  optimizeDeps: {
+    exclude: ['@trezor/connect-web', '@trezor/connect-common', '@trezor/env-utils']
   }
 });
