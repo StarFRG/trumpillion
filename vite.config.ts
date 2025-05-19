@@ -62,7 +62,7 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    hmr: false,
+    hmr: true, // Changed from false to true to fix timer-related crash
     cors: {
       origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -83,13 +83,11 @@ export default defineConfig({
     },
     rollupOptions: {
       external: [
-        '@trezor/connect-web',
-        '@trezor/connect-common',
-        '@trezor/env-utils'
+        '@sentry/browser'
       ]
     }
   },
   optimizeDeps: {
-    exclude: ['@trezor/connect-web', '@trezor/connect-common', '@trezor/env-utils']
+    exclude: ['@sentry/browser']
   }
 });
