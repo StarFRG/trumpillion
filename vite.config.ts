@@ -62,7 +62,7 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    hmr: true, // Changed from false to true to fix timer-related crash
+    hmr: true,
     cors: {
       origin: '*',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -80,14 +80,6 @@ export default defineConfig({
     sourcemap: true,
     commonjsOptions: {
       transformMixedEsModules: true
-    },
-    rollupOptions: {
-      external: [
-        '@sentry/browser'
-      ]
     }
-  },
-  optimizeDeps: {
-    exclude: ['@sentry/browser']
   }
 });

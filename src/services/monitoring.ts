@@ -1,9 +1,7 @@
-import * as Sentry from '@sentry/browser';
-
 interface ErrorDetails {
   error: Error | string;
   context?: Record<string, any>;
-  level?: Sentry.SeverityLevel;
+  level?: 'error' | 'warning' | 'info';
   user?: {
     id?: string;
     wallet?: string;
@@ -23,21 +21,13 @@ class MonitoringService {
       return;
     }
 
-    if (user) {
-      Sentry.setUser(user);
-    }
-
-    if (error instanceof Error) {
-      Sentry.captureException(error, {
-        level,
-        extra: context
-      });
-    } else {
-      Sentry.captureMessage(error, {
-        level,
-        extra: context
-      });
-    }
+    // In production, just log to console for now
+    console.error('[Production Error]:', {
+      error: error instanceof Error ? error.message : error,
+      context,
+      level,
+      user
+    });
   }
 
   logEvent(name: string, data?: Record<string, any>) {
@@ -46,23 +36,7 @@ class MonitoringService {
       return;
     }
 
-    Sentry.captureMessage(name, {
-      level: 'info',
-      extra: data
-    });
-  }
-
-  setUser(user: { id?: string; wallet?: string; email?: string; } | null) {
-    if (this.isDevelopment) {
-      console.log('Setting user:', user);
-      return;
-    }
-
-    if (user) {
-      Sentry.setUser(user);
-    } else {
-      Sentry.setUser(null);
-    }
+    console.log('[Production Event]:', name, data);
   }
 
   logErrorWithContext(
@@ -70,37 +44,25 @@ class MonitoringService {
     location: string,
     context: Record<string, any> = {}
   ) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    
     if (this.isDevelopment) {
-      console.error(`[${location}]`, err);
+      console.error(`[${location}]`, error);
       console.log('Context:', context);
       return;
     }
 
-    const error = err instanceof Error ? err : new Error(String(err));
-    
-    Sentry.captureException(error, {
-      tags: { location },
-      extra: {
-        ...context,
-        errorMessage: error.message,
-        errorStack: error.stack
-      }
+    console.error('[Production Error]:', {
+      location,
+      error: error.message,
+      context
     });
-  }
-
-  clearUser() {
-    if (this.isDevelopment) {
-      console.log('Clearing user');
-      return;
-    }
-
-    Sentry.setUser(null);
   }
 
   addBreadcrumb(
     message: string,
     category?: string,
-    level: Sentry.SeverityLevel = 'info',
+    level: 'info' | 'warning' | 'error' = 'info',
     data?: Record<string, any>
   ) {
     if (this.isDevelopment) {
@@ -108,7 +70,7 @@ class MonitoringService {
       return;
     }
 
-    Sentry.addBreadcrumb({
+    console.log('[Production Breadcrumb]:', {
       message,
       category,
       level,

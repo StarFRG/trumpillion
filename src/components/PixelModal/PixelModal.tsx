@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useWalletConnection } from '../../hooks/useWalletConnection';
 import { usePixelStore } from '../../store/pixelStore';
-import { getSupabase, getSupabaseWithHeaders } from '../../lib/supabase';
+import { getSupabase } from '../../lib/supabase';
 import { validateFile } from '../../utils/validation';
 import { monitoring } from '../../services/monitoring';
 import { isWalletConnected, getWalletAddress } from '../../utils/walletUtils';
@@ -37,7 +37,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
 
   const validatePixelAvailability = useCallback(async (x: number, y: number) => {
     try {
-      const { supabase, headers } = await getSupabaseWithHeaders();
+      const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
 
       const { data: existingPixel, error } = await supabase
         .from('pixels')
@@ -93,15 +96,22 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const blob = new Blob([arrayBuffer], { type: detectedMime });
       const correctedFile = new File([blob], fileName, { type: detectedMime });
 
-      const { supabase, headers } = await getSupabaseWithHeaders();
+      const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
 
+      const walletAddress = getWalletAddress(wallet);
       const { error: storageError } = await supabase.storage
         .from('pixel-images')
         .upload(fileName, correctedFile, {
           cacheControl: '3600',
           contentType: detectedMime,
           upsert: true,
-          headers
+          headers: {
+            'x-application-name': 'trumpillion',
+            'wallet': walletAddress
+          }
         });
 
       if (storageError) throw storageError;
@@ -109,16 +119,19 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const { data } = supabase.storage.from('pixel-images').getPublicUrl(fileName);
       if (!data?.publicUrl) throw new Error('UPLOAD_FAILED');
 
-      const uploadedUrl = data.publicUrl;
-      setUploadedImageUrl(uploadedUrl);
+      const headCheck = await fetch(data.publicUrl, { method: 'HEAD' });
+      if (!headCheck.ok) {
+        throw new Error('PUBLIC_URL_NOT_ACCESSIBLE');
+      }
 
+      setUploadedImageUrl(data.publicUrl);
       setSelectedPixel({
         x: selectedCoordinates.x,
         y: selectedCoordinates.y,
-        imageUrl: uploadedUrl
+        imageUrl: data.publicUrl
       });
 
-      return uploadedUrl;
+      return data.publicUrl;
     } catch (error) {
       console.error('Upload failed:', error);
       monitoring.logError({
@@ -196,10 +209,12 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const fileName = uploadedImageUrl.split('/').pop();
       if (fileName) {
         try {
-          const { supabase, headers } = await getSupabaseWithHeaders();
-          await supabase.storage
-            .from('pixel-images')
-            .remove([fileName], { headers });
+          const supabase = await getSupabase();
+          if (supabase) {
+            await supabase.storage
+              .from('pixel-images')
+              .remove([fileName]);
+          }
         } catch (error) {
           monitoring.logError({
             error: error instanceof Error ? error : new Error('Failed to remove uploaded image'),
@@ -257,11 +272,13 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const txId = await solanaService.processPayment(wallet);
       console.log('Payment successful:', txId);
 
-      const { headers } = await getSupabaseWithHeaders();
-
       const response = await fetch('/.netlify/functions/mint-nft', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-application-name': 'trumpillion',
+          'wallet': wallet.publicKey.toString()
+        },
         body: JSON.stringify({
           wallet: wallet.publicKey.toString(),
           name: title,
@@ -280,7 +297,10 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
       const { mint } = await response.json();
       const nftUrl = `https://solscan.io/token/${mint}`;
 
-      const { supabase } = await getSupabaseWithHeaders();
+      const supabase = await getSupabase();
+      if (!supabase) {
+        throw new Error('SUPABASE_NOT_INITIALIZED');
+      }
 
       const { error: dbError } = await supabase
         .from('pixels')
@@ -291,8 +311,7 @@ export const PixelModal: React.FC<PixelModalProps> = ({ isOpen, onClose, pixel, 
           nft_url: nftUrl,
           owner: getWalletAddress(wallet)
         }, {
-          onConflict: 'x,y',
-          headers
+          onConflict: 'x,y'
         });
 
       if (dbError) {

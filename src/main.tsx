@@ -5,21 +5,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import App from './App';
 import './i18n';
 import './index.css';
-import * as Sentry from '@sentry/react';
-
-// Sentry initialization with simplified config
-if (import.meta.env.PROD) {
-  Sentry.init({
-    dsn: 'https://0a8b9f06f41a248baab05358a12fb6ff@o4509111588225024.ingest.de.sentry.io/4509111601397840',
-    integrations: [
-      new Sentry.BrowserTracing({
-        tracePropagationTargets: ['localhost', /^https:\/\/trumpillion\.com/],
-      })
-    ],
-    tracesSampleRate: 1.0,
-    enabled: true
-  });
-}
 
 // Essential polyfills
 import { Buffer } from 'buffer';
@@ -48,7 +33,6 @@ if (
       }
     }).catch(error => {
       console.error('❌ SW registration failed:', error);
-      Sentry.captureException(error);
     });
   });
 }
