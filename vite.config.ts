@@ -65,6 +65,13 @@ export default defineConfig({
     sourcemap: true,
     commonjsOptions: {
       transformMixedEsModules: true
+    },
+    rollupOptions: {
+      external: [
+        '@trezor/connect-web',
+        '@trezor/connect-common',
+        '@trezor/env-utils'
+      ]
     }
   }
 });
