@@ -32,26 +32,6 @@ if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', handleUnhandledRejection);
 }
 
-// Register Service Worker
-if (
-  typeof navigator !== 'undefined' &&
-  'serviceWorker' in navigator &&
-  import.meta.env.PROD &&
-  (window.location.protocol === 'https:' || window.location.hostname === 'localhost')
-) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', {
-      scope: '/'
-    }).then(registration => {
-      if (import.meta.env.DEV) {
-        console.log('✅ Service Worker registered:', registration);
-      }
-    }).catch(error => {
-      console.error('❌ SW registration failed:', error);
-    });
-  });
-}
-
 const initializeApp = () => {
   try {
     const rootEl = typeof document !== 'undefined' ? document.getElementById('root') : null;
