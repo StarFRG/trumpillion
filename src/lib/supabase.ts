@@ -40,32 +40,15 @@ export const getSupabase = async () => {
         let url: string;
         let anonKey: string;
 
-        if (import.meta.env.DEV) {
-          url = import.meta.env.VITE_SUPABASE_URL;
-          anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        // Check for environment variables
+        url = import.meta.env.VITE_SUPABASE_URL;
+        anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-          if (!url?.startsWith('http')) {
-            throw new Error('INVALID_SUPABASE_URL');
-          }
-          if (!anonKey) {
-            throw new Error('MISSING_SUPABASE_KEY');
-          }
-        } else {
-          const response = await fetch('/.netlify/functions/get-supabase-config', {
-            headers: getHeaders()
-          });
-
-          if (!response.ok) {
-            throw new Error('SUPABASE_CONFIG_FAILED');
-          }
-
-          const config = await response.json();
-          if (!config?.url?.startsWith('http') || !config?.anonKey) {
-            throw new Error('INVALID_SUPABASE_CONFIG');
-          }
-
-          url = config.url;
-          anonKey = config.anonKey;
+        if (!url?.startsWith('http')) {
+          throw new Error('INVALID_SUPABASE_URL');
+        }
+        if (!anonKey) {
+          throw new Error('MISSING_SUPABASE_KEY');
         }
 
         const client = createClient<Database>(url, anonKey, {
@@ -77,6 +60,7 @@ export const getSupabase = async () => {
           db: { schema: 'public' }
         });
 
+        // Test connection with exponential backoff
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('CONNECTION_TEST_TIMEOUT')), CONNECTION_TIMEOUT);
         });
@@ -84,7 +68,8 @@ export const getSupabase = async () => {
         const testQuery = client
           .from('settings')
           .select('*')
-          .limit(1);
+          .limit(1)
+          .maybeSingle();
 
         const result = await Promise.race([testQuery, timeoutPromise]);
 
@@ -105,7 +90,9 @@ export const getSupabase = async () => {
             context: {
               source: 'getSupabase',
               attempts,
-              retryExhausted: true
+              retryExhausted: true,
+              url: import.meta.env.VITE_SUPABASE_URL ? 'configured' : 'missing',
+              hasAnonKey: !!import.meta.env.VITE_SUPABASE_ANON_KEY
             }
           });
           throw error;
